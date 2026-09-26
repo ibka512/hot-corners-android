@@ -24,6 +24,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private data class CornerState(
         var armed: Boolean = true,
         var pointerInside: Boolean = false,
+        var hoverExitWasButton: Boolean = false,
         var pendingTrigger: Runnable? = null,
     )
 
@@ -68,7 +69,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
             enabled = HotCornersSettings.isEnabled(this)
             rebuildCornerOverlays(resetArming = true)
         } else {
-            HotCorner.fromActionPreferenceKey(key)?.let(::updateCornerOverlay)
+            HotCorner.fromPreferenceKey(key)?.let(::updateCornerOverlay)
         }
     }
 
@@ -108,6 +109,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
         val state = cornerStates.getValue(corner)
         cancelPendingTrigger(state)
         state.pointerInside = false
+        state.hoverExitWasButton = false
         state.armed = true
 
         cornerViews.remove(corner)?.let { view ->
@@ -167,6 +169,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
             state.pendingTrigger?.let(mainHandler::removeCallbacks)
             state.pendingTrigger = null
             state.pointerInside = false
+            state.hoverExitWasButton = false
             if (resetArming) state.armed = true
         }
 
@@ -185,21 +188,48 @@ class HotCornersAccessibilityService : AccessibilityService(),
         // Ignore touchscreens, styluses, trackballs, and all non-mouse sources.
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
         val state = cornerStates.getValue(corner)
+        val trigger = HotCornersSettings.getTrigger(this, corner)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER,
             MotionEvent.ACTION_HOVER_MOVE -> {
+                if (trigger != CornerTrigger.HOVER) return true
                 if (!state.pointerInside) {
                     state.pointerInside = true
+                    if (state.hoverExitWasButton) {
+                        // A click causes HOVER_EXIT before its button event. Keep the existing
+                        // armed state when hover resumes after that click.
+                        state.hoverExitWasButton = false
+                        scheduleActionIfArmed(corner, state)
+                        return true
+                    }
+                    // Rearm on entry only after a genuine leave, not on a click transition.
+                    state.armed = true
                     scheduleActionIfArmed(corner, state)
                 }
             }
 
             MotionEvent.ACTION_HOVER_EXIT -> {
                 state.pointerInside = false
+                state.hoverExitWasButton = false
                 cancelPendingTrigger(state)
-                // Each corner is rearmed only when the mouse leaves that corner.
-                state.armed = true
+            }
+
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                if (!state.pointerInside) state.hoverExitWasButton = true
+                if (trigger.button == event.actionButton) {
+                    // Android reports button transitions here separately from pointer-down events.
+                    // Handling press only means a held button or its release cannot fire twice.
+                    performCornerAction(corner)
+                    Log.i(TAG, "$corner triggered by $trigger")
+                    return true
+                }
+                return false
+            }
+
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                // Consume the matching release after the configured button press was handled.
+                return trigger.button == event.actionButton
             }
 
             else -> return false
@@ -214,38 +244,44 @@ class HotCornersAccessibilityService : AccessibilityService(),
             state.pendingTrigger = null
             if (!enabled || !state.pointerInside || !state.armed) return@Runnable
 
-            val action = HotCornersSettings.getAction(this, corner)
             // Disarm before calling Android so repeated hover events cannot retrigger.
             state.armed = false
-            if (action.launchesApp) {
-                val packageName = HotCornersSettings.getAppPackage(this, corner)
-                if (packageName == null) {
-                    Toast.makeText(this, R.string.app_not_selected, Toast.LENGTH_SHORT).show()
-                    return@Runnable
-                }
-                when (CornerAppLauncher.launch(this, packageName, action.requestsSmallWindow)) {
-                    AppLaunchResult.STARTED -> Unit
-                    AppLaunchResult.APP_NOT_FOUND -> Toast.makeText(
-                        this,
-                        R.string.selected_app_unavailable,
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    AppLaunchResult.START_REJECTED -> Toast.makeText(
-                        this,
-                        R.string.app_launch_rejected,
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-                Log.i(TAG, "$corner triggered $action for $packageName")
-                return@Runnable
-            }
-
-            val actionId = action.globalActionId() ?: return@Runnable
-            val performed = performGlobalAction(actionId)
-            Log.i(TAG, "$corner triggered $action; performed=$performed")
+            performCornerAction(corner)
         }
         state.pendingTrigger = trigger
         mainHandler.postDelayed(trigger, HotCornersSettings.getDwellTimeMs(this).toLong())
+    }
+
+    private fun performCornerAction(corner: HotCorner) {
+        val action = HotCornersSettings.getAction(this, corner)
+        if (action == CornerAction.NONE || !action.isAvailableOn(this)) return
+
+        if (action.launchesApp) {
+            val packageName = HotCornersSettings.getAppPackage(this, corner)
+            if (packageName == null) {
+                Toast.makeText(this, R.string.app_not_selected, Toast.LENGTH_SHORT).show()
+                return
+            }
+            when (CornerAppLauncher.launch(this, packageName, action.requestsSmallWindow)) {
+                AppLaunchResult.STARTED -> Unit
+                AppLaunchResult.APP_NOT_FOUND -> Toast.makeText(
+                    this,
+                    R.string.selected_app_unavailable,
+                    Toast.LENGTH_SHORT,
+                ).show()
+                AppLaunchResult.START_REJECTED -> Toast.makeText(
+                    this,
+                    R.string.app_launch_rejected,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            Log.i(TAG, "$corner triggered $action for $packageName")
+            return
+        }
+
+        val actionId = action.globalActionId() ?: return
+        val performed = performGlobalAction(actionId)
+        Log.i(TAG, "$corner triggered $action; performed=$performed")
     }
 
     private fun cancelPendingTrigger(state: CornerState) {

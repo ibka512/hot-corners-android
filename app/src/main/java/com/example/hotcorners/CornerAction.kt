@@ -3,6 +3,7 @@ package com.example.hotcorners
 import android.accessibilityservice.AccessibilityService
 import android.os.Build
 import android.view.Gravity
+import android.view.MotionEvent
 
 /** Screen corner and its persistent settings identity. */
 internal enum class HotCorner(
@@ -18,8 +19,55 @@ internal enum class HotCorner(
     ;
 
     companion object {
-        fun fromActionPreferenceKey(key: String?): HotCorner? =
-            entries.firstOrNull { key == HotCornersSettings.actionKey(it) }
+        fun fromPreferenceKey(key: String?): HotCorner? =
+            entries.firstOrNull {
+                key == HotCornersSettings.actionKey(it) || key == HotCornersSettings.triggerKey(it)
+            }
+    }
+}
+
+/** Input accepted by a configured corner. Mouse button triggers run on press. */
+internal enum class CornerTrigger(
+    val id: String,
+    val labelResId: Int,
+    val summaryResId: Int,
+    val button: Int? = null,
+) {
+    HOVER("hover", R.string.trigger_hover, R.string.trigger_summary_hover),
+    LEFT_BUTTON(
+        "left_button",
+        R.string.trigger_left_button,
+        R.string.trigger_summary_left_button,
+        MotionEvent.BUTTON_PRIMARY,
+    ),
+    RIGHT_BUTTON(
+        "right_button",
+        R.string.trigger_right_button,
+        R.string.trigger_summary_right_button,
+        MotionEvent.BUTTON_SECONDARY,
+    ),
+    MIDDLE_BUTTON(
+        "middle_button",
+        R.string.trigger_middle_button,
+        R.string.trigger_summary_middle_button,
+        MotionEvent.BUTTON_TERTIARY,
+    ),
+    BACK_BUTTON(
+        "back_button",
+        R.string.trigger_back_button,
+        R.string.trigger_summary_back_button,
+        MotionEvent.BUTTON_BACK,
+    ),
+    FORWARD_BUTTON(
+        "forward_button",
+        R.string.trigger_forward_button,
+        R.string.trigger_summary_forward_button,
+        MotionEvent.BUTTON_FORWARD,
+    ),
+    ;
+
+    companion object {
+        fun fromId(id: String?): CornerTrigger? = entries.firstOrNull { it.id == id }
     }
 }
 

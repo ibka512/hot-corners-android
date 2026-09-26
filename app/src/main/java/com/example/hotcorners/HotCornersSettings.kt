@@ -18,7 +18,17 @@ internal object HotCornersSettings {
     const val DWELL_TIME_STEP_MS = 50
 
     fun actionKey(corner: HotCorner): String = "action_${corner.preferenceId}"
+    fun triggerKey(corner: HotCorner): String = "trigger_${corner.preferenceId}"
     fun appPackageKey(corner: HotCorner): String = "app_package_${corner.preferenceId}"
+
+    fun getTrigger(context: Context, corner: HotCorner): CornerTrigger {
+        val storedValue = preferences(context).getString(triggerKey(corner), null)
+        return if (storedValue == null) {
+            CornerTrigger.HOVER
+        } else {
+            CornerTrigger.fromId(storedValue) ?: CornerTrigger.HOVER
+        }
+    }
 
     fun getAppPackage(context: Context, corner: HotCorner): String? =
         preferences(context).getString(appPackageKey(corner), null)
