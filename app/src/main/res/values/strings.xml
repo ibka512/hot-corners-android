@@ -16,6 +16,7 @@
     <string name="corner_action_button_description">%1$s，当前动作：%2$s。点击更改。</string>
     <string name="choose_action_title">选择%1$s动作</string>
     <string name="choose_action_summary">鼠标进入这个角落并停留约 300 毫秒后执行。</string>
+    <string name="cancel">取消</string>
     <string name="action_unavailable_format">%1$s（此设备暂不可用）</string>
     <string name="adjust_action">点按更改</string>
     <string name="corner_top_left">左上角</string>

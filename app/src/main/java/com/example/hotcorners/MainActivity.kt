@@ -31,6 +31,18 @@ import kotlin.math.min
 /** Native-view settings screen styled with Material 3 Expressive color and shape tokens. */
 class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var preferences: SharedPreferences
+    private lateinit var scrollContainer: ScrollView
+    private lateinit var mainContent: LinearLayout
+    private lateinit var responsiveBody: LinearLayout
+    private lateinit var singleColumnBody: LinearLayout
+    private lateinit var wideBody: LinearLayout
+    private lateinit var wideSettingsPane: LinearLayout
+    private lateinit var wideActionsPane: LinearLayout
+    private lateinit var overviewCard: LinearLayout
+    private lateinit var switchCard: LinearLayout
+    private lateinit var actionsSection: LinearLayout
+    private lateinit var serviceCard: LinearLayout
+    private lateinit var usageNote: LinearLayout
     private lateinit var featureSwitch: Switch
     private lateinit var countText: TextView
     private lateinit var serviceTitle: TextView
@@ -40,6 +52,11 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var actionGrid: GridLayout
     private val actionCards = mutableMapOf<HotCorner, CornerActionCard>()
     private var applyingSwitchUpdate = false
+    private var usingWideLayout: Boolean? = null
+    private var safeLeftInsetPx = 0
+    private var safeRightInsetPx = 0
+    private var safeTopInsetPx = 0
+    private var safeBottomInsetPx = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,7 +85,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             window.isNavigationBarContrastEnforced = false
         }
 
-        val scroll = ScrollView(this).apply {
+        scrollContainer = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
             setBackgroundColor(color(R.color.md_background))
@@ -77,22 +94,22 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(20), 0, dp(28))
         }
-        val centeredContent = LinearLayout(this).apply {
+        mainContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
         val availableWidth = (resources.displayMetrics.widthPixels - dp(40)).coerceAtLeast(dp(280))
-        centeredContent.layoutParams = FrameLayout.LayoutParams(
-            min(availableWidth, dp(680)),
+        mainContent.layoutParams = FrameLayout.LayoutParams(
+            min(availableWidth, dp(760)),
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.CENTER_HORIZONTAL,
         )
 
-        val centeredFrame = FrameLayout(this).apply {
-            addView(centeredContent)
+        val contentFrame = FrameLayout(this).apply {
+            addView(mainContent)
         }
-        page.addView(centeredFrame, LinearLayout.LayoutParams(-1, -2))
-        scroll.addView(page)
-        scroll.setOnApplyWindowInsetsListener { view, insets ->
+        page.addView(contentFrame, LinearLayout.LayoutParams(-1, -2))
+        scrollContainer.addView(page)
+        scrollContainer.setOnApplyWindowInsetsListener { view, insets ->
             @Suppress("DEPRECATION")
             val safeInsets = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val safe = insets.getInsets(
@@ -110,15 +127,19 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
             val left = dp(20) + safeInsets[0]
             val right = dp(20) + safeInsets[2]
+            safeLeftInsetPx = safeInsets[0]
+            safeRightInsetPx = safeInsets[2]
+            safeTopInsetPx = safeInsets[1]
+            safeBottomInsetPx = safeInsets[3]
             view.setPadding(left, 0, right, 0)
             page.setPadding(0, dp(20) + safeInsets[1], 0, dp(28) + safeInsets[3])
-            val contentWidth = (view.width - left - right).coerceAtLeast(dp(280))
-            centeredContent.layoutParams = (centeredContent.layoutParams as FrameLayout.LayoutParams).apply {
-                width = min(contentWidth, dp(680))
-            }
+            updateResponsiveLayout()
             insets
         }
-        setContentView(scroll)
+        scrollContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateResponsiveLayout()
+        }
+        setContentView(scrollContainer)
 
         val eyebrow = text(getString(R.string.settings_eyebrow), 12f, R.color.md_primary).apply {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -127,9 +148,9 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = rounded(R.color.md_primary_container, 100)
         }
-        centeredContent.addView(eyebrow, wrap())
+        mainContent.addView(eyebrow, LinearLayout.LayoutParams(-2, -2))
 
-        centeredContent.addView(
+        mainContent.addView(
             text(getString(R.string.settings_headline), 32f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 letterSpacing = -0.025f
@@ -137,7 +158,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             },
             spaced(dp(16)),
         )
-        centeredContent.addView(
+        mainContent.addView(
             text(getString(R.string.settings_summary), 15f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(4).toFloat(), 1f)
             },
@@ -145,14 +166,14 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         )
 
         // Expressive, supportive container combines a compact visual with live setup progress.
-        val overview = LinearLayout(this).apply {
+        overviewCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(18))
             background = rounded(R.color.md_primary_container, 28)
         }
         overviewGlyph = CornerGlyphView(this, null)
-        overview.addView(overviewGlyph, LinearLayout.LayoutParams(dp(64), dp(64)))
+        overviewCard.addView(overviewGlyph, LinearLayout.LayoutParams(dp(64), dp(64)))
         val overviewCopy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), 0, 0, 0)
@@ -167,11 +188,10 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             },
             wrap(),
         )
-        overview.addView(overviewCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        centeredContent.addView(overview, spaced(dp(24)))
+        overviewCard.addView(overviewCopy, LinearLayout.LayoutParams(0, -2, 1f))
 
         // Main enable row has a full-height click target and a native accessible switch.
-        val switchCard = LinearLayout(this).apply {
+        switchCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(12), dp(12), dp(12))
@@ -202,8 +222,6 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
         }
         switchCard.addView(featureSwitch, LinearLayout.LayoutParams(-2, dp(56)))
-        centeredContent.addView(switchCard, spaced(dp(12)))
-
         val sectionHeader = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(4))
@@ -220,8 +238,6 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             },
             wrap(),
         )
-        centeredContent.addView(sectionHeader, spaced(dp(24)))
-
         actionGrid = GridLayout(this).apply {
             columnCount = 2
             useDefaultMargins = false
@@ -244,9 +260,13 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
             actionGrid.addView(card, params)
         }
-        centeredContent.addView(actionGrid, spaced(dp(8)))
+        actionsSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionHeader, wrap())
+            addView(actionGrid, spaced(dp(8)))
+        }
 
-        val serviceCard = LinearLayout(this).apply {
+        serviceCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(16))
             background = rounded(R.color.md_surface_container, 24)
@@ -283,26 +303,107 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
         }
         serviceCard.addView(settingsButton, spaced(dp(14)))
-        centeredContent.addView(serviceCard, spaced(dp(24)))
-
-        val note = LinearLayout(this).apply {
+        usageNote = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(16), dp(18), dp(16))
             background = rounded(R.color.md_tertiary_container, 22)
         }
-        note.addView(
+        usageNote.addView(
             text(getString(R.string.usage_note_title), 15f, R.color.md_on_tertiary_container).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             },
             wrap(),
         )
-        note.addView(
+        usageNote.addView(
             text(getString(R.string.usage_note_body), 13f, R.color.md_on_tertiary_container).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
             },
             spaced(dp(6)),
         )
-        centeredContent.addView(note, spaced(dp(14)))
+        configureResponsiveBodies()
+        updateResponsiveLayout()
+    }
+
+    private fun configureResponsiveBodies() {
+        responsiveBody = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        singleColumnBody = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        wideBody = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+        }
+        wideSettingsPane = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        wideActionsPane = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        mainContent.addView(responsiveBody, spaced(dp(24)))
+        setResponsiveBody(useWideLayout = false)
+    }
+
+    private fun updateResponsiveLayout() {
+        if (!::scrollContainer.isInitialized || !::mainContent.isInitialized || !::responsiveBody.isInitialized) {
+            return
+        }
+        val windowWidth = scrollContainer.width - safeLeftInsetPx - safeRightInsetPx
+        val contentAvailableWidth = scrollContainer.width - scrollContainer.paddingLeft - scrollContainer.paddingRight
+        if (windowWidth <= 0 || contentAvailableWidth <= 0) return
+
+        // Use the actual app window width after safe-area insets, so split-screen and
+        // freeform resizing switch layouts without relying on device type or orientation.
+        val useWideLayout = windowWidth >= dp(EXPANDED_WIDTH_DP)
+        val maxContentWidth = dp(if (useWideLayout) WIDE_CONTENT_MAX_DP else MEDIUM_CONTENT_MAX_DP)
+        val contentWidth = min(contentAvailableWidth, maxContentWidth)
+        val params = mainContent.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (params.width != contentWidth) {
+            params.width = contentWidth
+            mainContent.layoutParams = params
+        }
+        setResponsiveBody(useWideLayout)
+    }
+
+    private fun setResponsiveBody(useWideLayout: Boolean) {
+        if (usingWideLayout == useWideLayout) return
+        responsiveBody.removeAllViews()
+        singleColumnBody.removeAllViews()
+        wideSettingsPane.removeAllViews()
+        wideActionsPane.removeAllViews()
+        wideBody.removeAllViews()
+
+        if (useWideLayout) {
+            addSection(wideSettingsPane, overviewCard, topMarginDp = 0)
+            addSection(wideSettingsPane, switchCard, topMarginDp = 12)
+            addSection(wideSettingsPane, serviceCard, topMarginDp = 24)
+            addSection(wideSettingsPane, usageNote, topMarginDp = 14)
+            addSection(wideActionsPane, actionsSection, topMarginDp = 0)
+
+            wideBody.addView(wideSettingsPane, LinearLayout.LayoutParams(0, -2, 2f))
+            wideBody.addView(
+                wideActionsPane,
+                LinearLayout.LayoutParams(0, -2, 3f).apply { marginStart = dp(24) },
+            )
+            responsiveBody.addView(wideBody, wrap())
+        } else {
+            addSection(singleColumnBody, overviewCard, topMarginDp = 0)
+            addSection(singleColumnBody, switchCard, topMarginDp = 12)
+            addSection(singleColumnBody, actionsSection, topMarginDp = 24)
+            addSection(singleColumnBody, serviceCard, topMarginDp = 24)
+            addSection(singleColumnBody, usageNote, topMarginDp = 14)
+            responsiveBody.addView(singleColumnBody, wrap())
+        }
+        usingWideLayout = useWideLayout
+    }
+
+    private fun addSection(parent: LinearLayout, section: View, topMarginDp: Int) {
+        (section.parent as? ViewGroup)?.removeView(section)
+        parent.addView(
+            section,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(topMarginDp) },
+        )
     }
 
     private fun refreshContent() {
@@ -336,8 +437,6 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         }
         private val actionTitle = text("", 14f, R.color.md_primary).apply {
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, dp(6), 0, 0)
         }
         private val hint = text(getString(R.string.adjust_action), 12f, R.color.md_on_surface_variant).apply {
@@ -415,11 +514,13 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             isFillViewport = false
             addView(choices)
         }
-        val choiceHeight = min(dp(380), resources.displayMetrics.heightPixels - dp(260)).coerceAtLeast(dp(180))
+        val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
+            .coerceAtLeast(dp(280))
+        val choiceHeight = min(dp(380), (availableHeight - dp(220)).coerceAtLeast(dp(120)))
         content.addView(choiceScroll, LinearLayout.LayoutParams(-1, choiceHeight).apply { topMargin = dp(10) })
 
         val cancel = TextView(this).apply {
-            text = getString(android.R.string.cancel)
+            text = getString(R.string.cancel)
             textSize = 14f
             setTextColor(color(R.color.md_primary))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -439,11 +540,16 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         dialog.setContentView(content)
         dialog.window?.let { window ->
             window.setBackgroundDrawableResource(android.R.color.transparent)
-            val width = min(resources.displayMetrics.widthPixels - dp(32), dp(480))
+            val width = actionPickerWidthPx()
             window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         dialog.show()
-        dialog.window?.setLayout(min(resources.displayMetrics.widthPixels - dp(32), dp(480)), ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun actionPickerWidthPx(): Int {
+        val availableWidth = scrollContainer.width - scrollContainer.paddingLeft - scrollContainer.paddingRight
+        return min((availableWidth - dp(32)).coerceAtLeast(dp(240)), dp(480))
     }
 
     private fun selectableActions(corner: HotCorner): List<CornerAction> {
@@ -507,6 +613,12 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     private fun wrap() = LinearLayout.LayoutParams(-1, -2)
     private fun spaced(top: Int) = wrap().apply { topMargin = top }
+
+    private companion object {
+        const val EXPANDED_WIDTH_DP = 840
+        const val MEDIUM_CONTENT_MAX_DP = 760
+        const val WIDE_CONTENT_MAX_DP = 1200
+    }
 }
 
 /** Tiny four-corner diagram used both on the overview and each configuration card. */
