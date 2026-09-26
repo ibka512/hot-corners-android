@@ -1,22 +1,24 @@
 <p align="center">
-  <img src="app/src/main/res/drawable-nodpi/ic_launcher_foreground.png" alt="Hot Corners for Android 应用图标" width="160" />
+  <img src="app/src/main/res/drawable-nodpi/ic_launcher_foreground.png" alt="安卓鼠标拓展应用图标" width="160" />
 </p>
 
-# Hot Corners for Android
+# 安卓鼠标拓展
 
-Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用，用于在屏幕四角配置鼠标悬停动作。应用通过无障碍服务创建透明的角落区域；鼠标指针进入已启用区域并停留约 300 毫秒后，应用执行对应的系统操作。
+安卓鼠标拓展是一款以 Kotlin 编写的原生 Android 应用，可将快捷操作配置到屏幕四角。应用通过无障碍服务创建透明的鼠标悬停区域；指针进入已配置的角落并达到设定的停留时间后，应用执行对应操作。界面采用 Google Material 3 Expressive（MD3E）设计语言，并适配手机、平板和可调整大小的窗口。
 
 ## 功能
 
 - 分别配置左上、右上、左下和右下角。
-- 为角落选择关闭、返回、桌面、多任务、通知栏、快捷设置、电源菜单、锁屏、截图或分屏等系统操作。具体可用操作取决于 Android 版本、设备和系统当前提供的能力。
+- 为各角落选择关闭、返回、桌面、多任务、通知栏、快捷设置、锁屏、截图、分屏、打开指定应用或以小窗模式打开指定应用。系统操作的可用性取决于 Android 版本、设备和系统当前提供的能力。
+- “打开某应用”和“以小窗模式打开某应用”分别为每个角落保存目标应用；应用选择器支持按名称或包名搜索已安装的启动器应用。
+- 使用停留时间滑块调整触发延迟，范围为 0 至 1,000 毫秒，步进 50 毫秒，默认值为 300 毫秒。选择“立即”时不等待延迟。
 - 默认启用左上角多任务操作；其余角落默认关闭。
 - 每次进入角落最多触发一次；鼠标离开后重新进入，才会再次触发。
 - 仅处理鼠标悬停事件，不响应触屏和触控笔输入。
 - 屏幕方向或配置变化后，服务会重新定位角落区域。
 - 设置页根据应用可用窗口宽度调整排版：小于 840 dp 时使用单列，达到或超过 840 dp 时切换为左右分栏，四个角落卡片以 2 × 2 网格展示。分屏或调整窗口大小时，页面会自动重新排版。
 - 动作选择器会根据当前窗口限制尺寸；选项较多时可滚动查看。
-- 设置页采用 Material 3 Expressive 的视觉风格，包括动态色彩、明暗主题、分组容器和清晰的文字层级。Android 12 及以上版本会使用系统壁纸色彩。
+- 设置页采用 Material 3 Expressive（MD3E）视觉风格，包括动态色彩、明暗主题、分组容器和清晰的文字层级。Android 12 及以上版本会使用系统壁纸色彩。
 - 启动器图标采用自适应图标格式；Android 13 及以上版本支持系统主题图标所需的单色图层。
 
 ## 系统要求
@@ -27,13 +29,15 @@ Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用
 
 ## 安装与启用
 
-1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新版 APK。当前版本为 [v1.1.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.1.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.1.0/Hot-Corners-for-Android-v1.1.0-debug.apk)。
+1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新版 APK。当前版本为 [v1.2.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.2.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.2.0/Android-Mouse-Extension-v1.2.0-debug.apk)。
 2. 安装并打开应用。
 3. 在设置页点按“管理无障碍服务”，进入系统无障碍设置。
-4. 在“已安装的应用”或系统对应列表中找到 **Hot Corners for Android**，然后开启服务。
+4. 在“已安装的应用”或系统对应列表中找到 **安卓鼠标拓展**，然后开启服务。
 5. 返回应用，确认“触发角总开关”处于开启状态。
 6. 点按四个角落卡片，为各角选择需要执行的操作。
-7. 连接鼠标，将指针移至已配置的角落并停留约 300 毫秒。鼠标离开该角后，可以再次触发。
+7. 连接鼠标，将指针移至已配置的角落并停留到设定时间。鼠标离开该角后，可以再次触发。
+
+小窗模式通过 Android 的启动窗口边界请求实现。只有支持自由窗口模式或小窗模式的系统会按请求调整应用窗口；部分设备或目标应用可能仍以全屏方式打开。
 
 关闭应用内的总开关会暂停全部角落操作；也可以在系统无障碍设置中关闭本服务。
 
@@ -76,4 +80,4 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 ## 发布包说明
 
-当前公开版本为 v1.1.0。GitHub Release 提供由 `debug` 构建变体生成的可安装 APK，包内含应用启动器图标，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
+当前公开版本为 v1.2.0。GitHub Release 提供由 `debug` 构建变体生成的可安装 APK，包内含应用启动器图标，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。

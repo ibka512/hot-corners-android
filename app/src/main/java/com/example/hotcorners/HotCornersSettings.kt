@@ -11,8 +11,21 @@ internal object HotCornersSettings {
     const val DEFAULT_ENABLED = true
 
     const val KEY_AVAILABLE_ACTION_IDS = "available_system_action_ids"
+    const val KEY_DWELL_TIME_MS = "dwell_time_ms"
+    const val DEFAULT_DWELL_TIME_MS = 300
+    const val MIN_DWELL_TIME_MS = 0
+    const val MAX_DWELL_TIME_MS = 1000
+    const val DWELL_TIME_STEP_MS = 50
 
     fun actionKey(corner: HotCorner): String = "action_${corner.preferenceId}"
+    fun appPackageKey(corner: HotCorner): String = "app_package_${corner.preferenceId}"
+
+    fun getAppPackage(context: Context, corner: HotCorner): String? =
+        preferences(context).getString(appPackageKey(corner), null)
+
+    fun getDwellTimeMs(context: Context): Int = preferences(context)
+        .getInt(KEY_DWELL_TIME_MS, DEFAULT_DWELL_TIME_MS)
+        .coerceIn(MIN_DWELL_TIME_MS, MAX_DWELL_TIME_MS)
 
     fun getAction(context: Context, corner: HotCorner): CornerAction {
         val storedValue = preferences(context).getString(actionKey(corner), null)

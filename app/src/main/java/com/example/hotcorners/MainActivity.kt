@@ -15,18 +15,27 @@ import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
+import android.widget.BaseAdapter
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.RadioButton
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import kotlin.math.min
+import java.util.Locale
 
 /** Native-view settings screen styled with Material 3 Expressive color and shape tokens. */
 class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListener {
@@ -40,6 +49,9 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var wideActionsPane: LinearLayout
     private lateinit var overviewCard: LinearLayout
     private lateinit var switchCard: LinearLayout
+    private lateinit var dwellCard: LinearLayout
+    private lateinit var dwellValueText: TextView
+    private lateinit var dwellSeekBar: SeekBar
     private lateinit var actionsSection: LinearLayout
     private lateinit var serviceCard: LinearLayout
     private lateinit var usageNote: LinearLayout
@@ -52,6 +64,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var actionGrid: GridLayout
     private val actionCards = mutableMapOf<HotCorner, CornerActionCard>()
     private var applyingSwitchUpdate = false
+    private var updatingDwellTimeControl = false
     private var usingWideLayout: Boolean? = null
     private var safeLeftInsetPx = 0
     private var safeRightInsetPx = 0
@@ -222,6 +235,80 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
         }
         switchCard.addView(featureSwitch, LinearLayout.LayoutParams(-2, dp(56)))
+
+        dwellCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(12))
+            background = rounded(R.color.md_surface_container, 24)
+        }
+        val dwellHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        dwellHeader.addView(
+            text(getString(R.string.dwell_time_title), 16f, R.color.md_on_surface).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        dwellValueText = text("", 16f, R.color.md_primary).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        dwellHeader.addView(
+            dwellValueText,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
+        dwellCard.addView(dwellHeader, wrap())
+        dwellCard.addView(
+            text(getString(R.string.dwell_time_summary), 13f, R.color.md_on_surface_variant).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            spaced(dp(4)),
+        )
+        dwellSeekBar = SeekBar(this).apply {
+            max = (HotCornersSettings.MAX_DWELL_TIME_MS - HotCornersSettings.MIN_DWELL_TIME_MS) /
+                HotCornersSettings.DWELL_TIME_STEP_MS
+            progress = (HotCornersSettings.getDwellTimeMs(this@MainActivity) - HotCornersSettings.MIN_DWELL_TIME_MS) /
+                HotCornersSettings.DWELL_TIME_STEP_MS
+            minHeight = dp(48)
+            setPadding(dp(6), 0, dp(6), 0)
+            progressTintList = ColorStateList.valueOf(color(R.color.md_primary))
+            progressBackgroundTintList = ColorStateList.valueOf(color(R.color.md_outline_variant))
+            thumbTintList = ColorStateList.valueOf(color(R.color.md_primary))
+        }
+        dwellCard.addView(dwellSeekBar, spaced(dp(6)))
+        val dwellRangeLabels = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        dwellRangeLabels.addView(
+            text(getString(R.string.dwell_time_min), 12f, R.color.md_on_surface_variant),
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        dwellRangeLabels.addView(
+            text(getString(R.string.dwell_time_max), 12f, R.color.md_on_surface_variant).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
+        dwellCard.addView(dwellRangeLabels, wrap())
+        dwellSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (updatingDwellTimeControl) return
+                val dwellTimeMs = HotCornersSettings.MIN_DWELL_TIME_MS +
+                    progress * HotCornersSettings.DWELL_TIME_STEP_MS
+                updateDwellValue(dwellTimeMs)
+                if (fromUser) {
+                    preferences.edit().putInt(HotCornersSettings.KEY_DWELL_TIME_MS, dwellTimeMs).apply()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+
         val sectionHeader = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(4))
@@ -377,6 +464,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         if (useWideLayout) {
             addSection(wideSettingsPane, overviewCard, topMarginDp = 0)
             addSection(wideSettingsPane, switchCard, topMarginDp = 12)
+            addSection(wideSettingsPane, dwellCard, topMarginDp = 12)
             addSection(wideSettingsPane, serviceCard, topMarginDp = 24)
             addSection(wideSettingsPane, usageNote, topMarginDp = 14)
             addSection(wideActionsPane, actionsSection, topMarginDp = 0)
@@ -390,6 +478,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         } else {
             addSection(singleColumnBody, overviewCard, topMarginDp = 0)
             addSection(singleColumnBody, switchCard, topMarginDp = 12)
+            addSection(singleColumnBody, dwellCard, topMarginDp = 12)
             addSection(singleColumnBody, actionsSection, topMarginDp = 24)
             addSection(singleColumnBody, serviceCard, topMarginDp = 24)
             addSection(singleColumnBody, usageNote, topMarginDp = 14)
@@ -411,13 +500,14 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         applyingSwitchUpdate = true
         featureSwitch.isChecked = HotCornersSettings.isEnabled(this)
         applyingSwitchUpdate = false
+        refreshDwellTimeControl()
 
         val configured = HotCorner.entries.count { HotCornersSettings.getAction(this, it) != CornerAction.NONE }
         countText.text = getString(R.string.configured_count, configured)
         overviewGlyph.invalidate()
         actionCards.forEach { (corner, card) ->
             val action = HotCornersSettings.getAction(this, corner)
-            card.bind(action, formatActionLabel(action, isAvailableInPicker(action)))
+            card.bind(action, formatCornerActionLabel(corner, action))
         }
 
         val serviceEnabled = isHotCornersServiceEnabled()
@@ -428,6 +518,56 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             if (serviceEnabled) R.string.accessibility_body_on else R.string.accessibility_body_off,
         )
         serviceGlyph.isReady = serviceEnabled
+    }
+
+    private fun refreshDwellTimeControl() {
+        updatingDwellTimeControl = true
+        val dwellTimeMs = HotCornersSettings.getDwellTimeMs(this)
+        dwellSeekBar.progress = (dwellTimeMs - HotCornersSettings.MIN_DWELL_TIME_MS) /
+            HotCornersSettings.DWELL_TIME_STEP_MS
+        updateDwellValue(dwellTimeMs)
+        updatingDwellTimeControl = false
+    }
+
+    private fun updateDwellValue(dwellTimeMs: Int) {
+        val label = formatDwellTime(dwellTimeMs)
+        dwellValueText.text = label
+        dwellSeekBar.contentDescription = getString(R.string.dwell_time_accessibility_label, label)
+    }
+
+    private fun formatDwellTime(dwellTimeMs: Int): String = if (dwellTimeMs == 0) {
+        getString(R.string.dwell_time_immediate)
+    } else {
+        getString(R.string.dwell_time_value, dwellTimeMs)
+    }
+
+    private fun formatCornerActionLabel(corner: HotCorner, action: CornerAction): String {
+        if (!action.launchesApp) {
+            return formatActionLabel(action, isAvailableInPicker(action))
+        }
+
+        val packageName = HotCornersSettings.getAppPackage(this, corner)
+            ?: return getString(R.string.app_not_selected)
+        val appLabel = applicationLabel(packageName) ?: return getString(R.string.app_not_available)
+        return getString(
+            if (action.requestsSmallWindow) R.string.action_small_window_for_app else R.string.action_open_app_named,
+            appLabel,
+        )
+    }
+
+    private fun applicationLabel(packageName: String): String? = try {
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getApplicationInfo(
+                packageName,
+                android.content.pm.PackageManager.ApplicationInfoFlags.of(0),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getApplicationInfo(packageName, 0)
+        }
+        packageManager.getApplicationLabel(info).toString()
+    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+        null
     }
 
     private inner class CornerActionCard(private val corner: HotCorner) : LinearLayout(this@MainActivity) {
@@ -469,6 +609,84 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         }
     }
 
+    private inner class LaunchableAppAdapter(
+        private val allApps: List<LaunchableApp>,
+        private val selectedPackageName: String?,
+    ) : BaseAdapter() {
+        private var visibleApps = allApps
+
+        override fun getCount(): Int = visibleApps.size
+
+        override fun getItem(position: Int): LaunchableApp = visibleApps[position]
+
+        override fun getItemId(position: Int): Long = getItem(position).packageName.hashCode().toLong()
+
+        override fun hasStableIds(): Boolean = true
+
+        fun filter(query: String) {
+            val normalizedQuery = query.trim().lowercase(Locale.getDefault())
+            visibleApps = if (normalizedQuery.isEmpty()) {
+                allApps
+            } else {
+                allApps.filter { app ->
+                    app.label.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
+                        app.packageName.lowercase(Locale.getDefault()).contains(normalizedQuery)
+                }
+            }
+            notifyDataSetChanged()
+        }
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val app = getItem(position)
+            val holder = (convertView?.tag as? AppRowViews) ?: createAppRow()
+            holder.icon.setImageDrawable(app.icon)
+            holder.label.text = app.label
+            holder.radio.isChecked = app.packageName == selectedPackageName
+            val selectedDescription = if (holder.radio.isChecked) {
+                getString(R.string.app_already_selected)
+            } else {
+                ""
+            }
+            holder.root.contentDescription = listOf(app.label, selectedDescription)
+                .filter(String::isNotBlank)
+                .joinToString("，")
+            return holder.root
+        }
+
+        private fun createAppRow(): AppRowViews {
+            val row = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(56)
+                setPadding(dp(12), dp(8), dp(6), dp(8))
+            }
+            val icon = ImageView(this@MainActivity).apply {
+                contentDescription = null
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            row.addView(icon, LinearLayout.LayoutParams(dp(40), dp(40)))
+            val label = text("", 15f, R.color.md_on_surface).apply {
+                setPadding(dp(12), 0, dp(8), 0)
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, -2, 1f))
+            val radio = RadioButton(this@MainActivity).apply {
+                isClickable = false
+                isFocusable = false
+                buttonTintList = ColorStateList.valueOf(color(R.color.md_primary))
+                contentDescription = null
+            }
+            row.addView(radio, LinearLayout.LayoutParams(dp(48), dp(48)))
+            return AppRowViews(row, icon, label, radio).also { row.tag = it }
+        }
+    }
+
+    private class AppRowViews(
+        val root: LinearLayout,
+        val icon: ImageView,
+        val label: TextView,
+        val radio: RadioButton,
+    )
+
     private fun showActionPicker(corner: HotCorner) {
         val actions = selectableActions(corner)
         val selected = HotCornersSettings.getAction(this, corner)
@@ -485,7 +703,11 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             wrap(),
         )
         content.addView(
-            text(getString(R.string.choose_action_summary), 14f, R.color.md_on_surface_variant).apply {
+            text(
+                getString(R.string.choose_action_summary, formatDwellTime(HotCornersSettings.getDwellTimeMs(this@MainActivity))),
+                14f,
+                R.color.md_on_surface_variant,
+            ).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
             },
             spaced(dp(7)),
@@ -504,8 +726,12 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
                 isChecked = action == selected
                 contentDescription = label
                 setOnClickListener {
-                    preferences.edit().putString(HotCornersSettings.actionKey(corner), action.id).apply()
                     dialog.dismiss()
+                    if (action.launchesApp) {
+                        showAppPicker(corner, action)
+                    } else {
+                        preferences.edit().putString(HotCornersSettings.actionKey(corner), action.id).apply()
+                    }
                 }
             }
             choices.addView(radio, LinearLayout.LayoutParams(-1, -2))
@@ -547,6 +773,111 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
+    private fun showAppPicker(corner: HotCorner, action: CornerAction) {
+        val apps = LaunchableAppRepository.load(this)
+        val dialog = Dialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(22), dp(24), dp(16))
+            background = rounded(R.color.md_surface_container_high, 28)
+        }
+        content.addView(
+            text(getString(R.string.choose_app_title), 23f, R.color.md_on_surface).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            },
+            wrap(),
+        )
+        val summaryRes = if (action.requestsSmallWindow) {
+            R.string.choose_app_small_window_summary
+        } else {
+            R.string.choose_app_summary
+        }
+        content.addView(
+            text(getString(summaryRes), 14f, R.color.md_on_surface_variant).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            spaced(dp(7)),
+        )
+
+        val searchField = EditText(this).apply {
+            hint = getString(R.string.search_apps_hint)
+            textSize = 15f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
+            minHeight = dp(52)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setTextColor(color(R.color.md_on_surface))
+            setHintTextColor(color(R.color.md_on_surface_variant))
+            background = rounded(R.color.md_surface, 16)
+            contentDescription = getString(R.string.search_apps_hint)
+        }
+        content.addView(searchField, spaced(dp(12)))
+
+        val adapter = LaunchableAppAdapter(apps, HotCornersSettings.getAppPackage(this, corner))
+        val appList = ListView(this).apply {
+            this.adapter = adapter
+            divider = android.graphics.drawable.ColorDrawable(color(R.color.md_outline_variant))
+            dividerHeight = dp(1)
+            isNestedScrollingEnabled = true
+            emptyView = text(getString(R.string.app_list_empty), 14f, R.color.md_on_surface_variant).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(20), dp(16), dp(20), dp(16))
+            }
+            setOnItemClickListener { _, _, position, _ ->
+                val app = adapter.getItem(position) as LaunchableApp
+                preferences.edit()
+                    .putString(HotCornersSettings.actionKey(corner), action.id)
+                    .putString(HotCornersSettings.appPackageKey(corner), app.packageName)
+                    .apply()
+                dialog.dismiss()
+            }
+        }
+        val emptyState = appList.emptyView as View
+        val listFrame = FrameLayout(this).apply {
+            addView(appList, FrameLayout.LayoutParams(-1, -1))
+            addView(emptyState, FrameLayout.LayoutParams(-1, -1))
+        }
+        val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
+            .coerceAtLeast(dp(280))
+        val listHeight = min(dp(380), (availableHeight - dp(292)).coerceAtLeast(dp(100)))
+        content.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
+        searchField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
+        })
+
+        val cancel = TextView(this).apply {
+            text = getString(R.string.cancel)
+            textSize = 14f
+            setTextColor(color(R.color.md_primary))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            setPadding(dp(16), 0, dp(16), 0)
+            background = ripple(R.color.md_surface_variant, 100)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { dialog.dismiss() }
+        }
+        content.addView(cancel, LinearLayout.LayoutParams(-2, dp(48)).apply {
+            gravity = Gravity.END
+            topMargin = dp(6)
+        })
+
+        dialog.setContentView(content)
+        dialog.window?.let { window ->
+            window.setBackgroundDrawableResource(android.R.color.transparent)
+            window.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+            )
+            window.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
+        dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+
     private fun actionPickerWidthPx(): Int {
         val availableWidth = scrollContainer.width - scrollContainer.paddingLeft - scrollContainer.paddingRight
         return min((availableWidth - dp(32)).coerceAtLeast(dp(240)), dp(480))
@@ -563,6 +894,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
 
     private fun isAvailableInPicker(action: CornerAction): Boolean {
         if (action == CornerAction.NONE) return true
+        if (action.launchesApp) return true
         if (!action.isSupportedByOs()) return false
         val reportedActions = HotCornersSettings.getAvailableActionIds(this)
         val serviceEnabled = isHotCornersServiceEnabled()

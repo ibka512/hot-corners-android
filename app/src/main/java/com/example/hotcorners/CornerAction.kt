@@ -35,11 +35,18 @@ internal enum class CornerAction(
     RECENTS("recents", R.string.action_recents, 26),
     NOTIFICATIONS("notifications", R.string.action_notifications, 26),
     QUICK_SETTINGS("quick_settings", R.string.action_quick_settings, 26),
-    POWER_DIALOG("power_dialog", R.string.action_power_dialog, 26),
     LOCK_SCREEN("lock_screen", R.string.action_lock_screen, 28),
     SCREENSHOT("screenshot", R.string.action_screenshot, 28),
-    SPLIT_SCREEN("split_screen", R.string.action_split_screen, 30)
+    SPLIT_SCREEN("split_screen", R.string.action_split_screen, 30),
+    OPEN_APP("open_app", R.string.action_open_app, 26),
+    OPEN_APP_IN_WINDOW("open_app_in_window", R.string.action_open_app_in_window, 26)
     ;
+
+    val launchesApp: Boolean
+        get() = this == OPEN_APP || this == OPEN_APP_IN_WINDOW
+
+    val requestsSmallWindow: Boolean
+        get() = this == OPEN_APP_IN_WINDOW
 
     fun globalActionId(): Int? = when (this) {
         NONE -> null
@@ -48,7 +55,6 @@ internal enum class CornerAction(
         RECENTS -> AccessibilityService.GLOBAL_ACTION_RECENTS
         NOTIFICATIONS -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
         QUICK_SETTINGS -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
-        POWER_DIALOG -> AccessibilityService.GLOBAL_ACTION_POWER_DIALOG
         LOCK_SCREEN -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
         } else {
@@ -64,6 +70,7 @@ internal enum class CornerAction(
         } else {
             null
         }
+        OPEN_APP, OPEN_APP_IN_WINDOW -> null
     }
 
     fun isSupportedByOs(): Boolean = Build.VERSION.SDK_INT >= minimumApi
@@ -74,6 +81,7 @@ internal enum class CornerAction(
      */
     fun isAvailableOn(service: AccessibilityService): Boolean {
         if (this == NONE || !isSupportedByOs()) return this == NONE
+        if (launchesApp) return true
         val actionId = globalActionId() ?: return false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             service.systemActions.any { it.id == actionId }

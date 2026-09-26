@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
 import kotlin.math.roundToInt
 
 /** Creates transparent hover windows only for corners with a configured action. */
@@ -56,7 +57,14 @@ class HotCornersAccessibilityService : AccessibilityService(),
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
-        if (key == HotCornersSettings.KEY_ENABLED) {
+        if (key == HotCornersSettings.KEY_DWELL_TIME_MS) {
+            cornerStates.forEach { (corner, state) ->
+                if (state.pointerInside && state.armed) {
+                    cancelPendingTrigger(state)
+                    scheduleActionIfArmed(corner, state)
+                }
+            }
+        } else if (key == HotCornersSettings.KEY_ENABLED) {
             enabled = HotCornersSettings.isEnabled(this)
             rebuildCornerOverlays(resetArming = true)
         } else {
@@ -207,15 +215,37 @@ class HotCornersAccessibilityService : AccessibilityService(),
             if (!enabled || !state.pointerInside || !state.armed) return@Runnable
 
             val action = HotCornersSettings.getAction(this, corner)
-            val actionId = action.globalActionId() ?: return@Runnable
-
             // Disarm before calling Android so repeated hover events cannot retrigger.
             state.armed = false
+            if (action.launchesApp) {
+                val packageName = HotCornersSettings.getAppPackage(this, corner)
+                if (packageName == null) {
+                    Toast.makeText(this, R.string.app_not_selected, Toast.LENGTH_SHORT).show()
+                    return@Runnable
+                }
+                when (CornerAppLauncher.launch(this, packageName, action.requestsSmallWindow)) {
+                    AppLaunchResult.STARTED -> Unit
+                    AppLaunchResult.APP_NOT_FOUND -> Toast.makeText(
+                        this,
+                        R.string.selected_app_unavailable,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    AppLaunchResult.START_REJECTED -> Toast.makeText(
+                        this,
+                        R.string.app_launch_rejected,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                Log.i(TAG, "$corner triggered $action for $packageName")
+                return@Runnable
+            }
+
+            val actionId = action.globalActionId() ?: return@Runnable
             val performed = performGlobalAction(actionId)
             Log.i(TAG, "$corner triggered $action; performed=$performed")
         }
         state.pendingTrigger = trigger
-        mainHandler.postDelayed(trigger, DWELL_TIME_MS)
+        mainHandler.postDelayed(trigger, HotCornersSettings.getDwellTimeMs(this).toLong())
     }
 
     private fun cancelPendingTrigger(state: CornerState) {
@@ -240,6 +270,5 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private companion object {
         const val TAG = "HotCornersService"
         const val HOTSPOT_SIZE_DP = 24
-        const val DWELL_TIME_MS = 300L
     }
 }
