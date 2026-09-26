@@ -92,12 +92,16 @@ internal enum class CornerAction(
     LOCK_SCREEN("lock_screen", R.string.action_lock_screen, 28),
     SCREENSHOT("screenshot", R.string.action_screenshot, 28),
     SPLIT_SCREEN("split_screen", R.string.action_split_screen, 30),
+    APP_TRAY("app_tray", R.string.action_app_tray, 26),
     OPEN_APP("open_app", R.string.action_open_app, 26),
     OPEN_APP_IN_WINDOW("open_app_in_window", R.string.action_open_app_in_window, 26)
     ;
 
     val launchesApp: Boolean
         get() = this == OPEN_APP || this == OPEN_APP_IN_WINDOW
+
+    val opensAppTray: Boolean
+        get() = this == APP_TRAY
 
     val requestsSmallWindow: Boolean
         get() = this == OPEN_APP_IN_WINDOW
@@ -109,6 +113,7 @@ internal enum class CornerAction(
         RECENTS -> AccessibilityService.GLOBAL_ACTION_RECENTS
         NOTIFICATIONS -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
         QUICK_SETTINGS -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
+        APP_TRAY -> null
         LOCK_SCREEN -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
         } else {
@@ -135,6 +140,7 @@ internal enum class CornerAction(
      */
     fun isAvailableOn(service: AccessibilityService): Boolean {
         if (this == NONE || !isSupportedByOs()) return this == NONE
+        if (opensAppTray) return true
         if (launchesApp) return true
         val actionId = globalActionId() ?: return false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

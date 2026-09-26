@@ -3,6 +3,7 @@ package com.example.hotcorners
 import android.accessibilityservice.AccessibilityService
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.graphics.Point
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
@@ -33,6 +34,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private val cornerStates = HotCorner.entries.associateWith { CornerState() }
     private var preferences: SharedPreferences? = null
     private var windowManager: WindowManager? = null
+    private var appTrayOverlay: CornerAppTrayOverlay? = null
     private var enabled = HotCornersSettings.DEFAULT_ENABLED
 
     override fun onServiceConnected() {
@@ -48,6 +50,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        removeAppTrayOverlay()
         // Gravity-based windows need to be re-added after rotation or size changes.
         rebuildCornerOverlays()
     }
@@ -80,6 +83,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
     override fun onDestroy() {
         preferences?.unregisterOnSharedPreferenceChangeListener(this)
+        removeAppTrayOverlay()
         removeCornerOverlays(resetArming = true)
         super.onDestroy()
     }
@@ -93,6 +97,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
     }
 
     private fun rebuildCornerOverlays(resetArming: Boolean = false) {
+        removeAppTrayOverlay()
         removeCornerOverlays(resetArming)
         if (!enabled) return
 
@@ -263,25 +268,25 @@ class HotCornersAccessibilityService : AccessibilityService(),
         }
         if (action == CornerAction.NONE || !action.isAvailableOn(this)) return
 
+        if (action.opensAppTray) {
+            showAppTray(corner)
+            Log.i(TAG, "$corner opened the app tray")
+            return
+        }
+
         if (action.launchesApp) {
             val packageName = HotCornersSettings.getAppPackage(this, corner, trigger)
             if (packageName == null) {
                 Toast.makeText(this, R.string.app_not_selected, Toast.LENGTH_SHORT).show()
                 return
             }
-            when (CornerAppLauncher.launch(this, packageName, action.requestsSmallWindow)) {
-                AppLaunchResult.STARTED -> Unit
-                AppLaunchResult.APP_NOT_FOUND -> Toast.makeText(
-                    this,
-                    R.string.selected_app_unavailable,
-                    Toast.LENGTH_SHORT,
-                ).show()
-                AppLaunchResult.START_REJECTED -> Toast.makeText(
-                    this,
-                    R.string.app_launch_rejected,
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
+            val launchResult = CornerAppLauncher.launch(
+                this,
+                packageName,
+                action.requestsSmallWindow,
+                onComplete = ::showAppLaunchResult,
+            )
+            if (launchResult != AppLaunchResult.PENDING) showAppLaunchResult(launchResult)
             Log.i(TAG, "$corner triggered $action for $packageName")
             return
         }
@@ -289,6 +294,120 @@ class HotCornersAccessibilityService : AccessibilityService(),
         val actionId = action.globalActionId() ?: return
         val performed = performGlobalAction(actionId)
         Log.i(TAG, "$corner triggered $action; performed=$performed")
+    }
+
+    private fun showAppTray(corner: HotCorner) {
+        if (appTrayOverlay != null) return
+
+        val selectedPackages = HotCornersSettings.getAppTrayPackages(this)
+        val appsByPackage = LaunchableAppRepository.load(this).associateBy(LaunchableApp::packageName)
+        val apps = selectedPackages.mapNotNull(appsByPackage::get)
+        if (apps.isEmpty()) {
+            Toast.makeText(this, R.string.app_tray_missing_apps, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val tray = CornerAppTrayOverlay(
+            context = this,
+            corner = corner,
+            apps = apps,
+            onOpenApp = { app -> openTrayApp(app, smallWindow = false) },
+            onOpenSmallWindow = { app, x, y ->
+                openTrayApp(app, smallWindow = true, preferredCenter = Point(x, y))
+            },
+            onDismiss = ::closeAppTray,
+        )
+        val layoutParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+
+        try {
+            windowManager?.addView(tray, layoutParams) ?: return
+            appTrayOverlay = tray
+            // The full-screen layer hides hover-exit events from the underlying corner window.
+            // Mark the pointer as outside so the next genuine entry can arm that corner again.
+            cornerStates.getValue(corner).apply {
+                cancelPendingTrigger(this)
+                pointerInside = false
+                hoverExitWasButton = false
+            }
+            tray.post {
+                if (appTrayOverlay === tray) tray.animateIn()
+            }
+        } catch (exception: RuntimeException) {
+            Log.e(TAG, "Could not show the app tray at $corner", exception)
+            Toast.makeText(this, R.string.app_tray_overlay_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openTrayApp(
+        app: LaunchableApp,
+        smallWindow: Boolean,
+        preferredCenter: Point? = null,
+    ) {
+        closeAppTray {
+            val launchResult = CornerAppLauncher.launch(
+                this,
+                app.packageName,
+                smallWindow,
+                preferredCenter,
+                onComplete = ::showAppLaunchResult,
+            )
+            if (launchResult != AppLaunchResult.PENDING) showAppLaunchResult(launchResult)
+        }
+    }
+
+    private fun showAppLaunchResult(result: AppLaunchResult) {
+        val message = when (result) {
+            AppLaunchResult.STARTED,
+            AppLaunchResult.PENDING -> return
+            AppLaunchResult.APP_NOT_FOUND -> R.string.selected_app_unavailable
+            AppLaunchResult.START_REJECTED -> R.string.app_launch_rejected
+        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun closeAppTray() {
+        closeAppTray(afterClosed = null)
+    }
+
+    private fun closeAppTray(afterClosed: (() -> Unit)?) {
+        val tray = appTrayOverlay
+        if (tray == null) {
+            afterClosed?.invoke()
+            return
+        }
+        appTrayOverlay = null
+        tray.animateOut {
+            try {
+                windowManager?.removeViewImmediate(tray)
+            } catch (_: IllegalArgumentException) {
+                // The service can be disconnected while the tray is dismissing.
+            }
+            afterClosed?.invoke()
+        }
+    }
+
+    private fun removeAppTrayOverlay() {
+        val tray = appTrayOverlay ?: return
+        appTrayOverlay = null
+        tray.animate().cancel()
+        try {
+            windowManager?.removeViewImmediate(tray)
+        } catch (_: IllegalArgumentException) {
+            // The window may already have been detached during a service restart.
+        }
     }
 
     private fun cancelPendingTrigger(state: CornerState) {

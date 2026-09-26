@@ -12,6 +12,8 @@ internal object HotCornersSettings {
 
     const val KEY_AVAILABLE_ACTION_IDS = "available_system_action_ids"
     const val KEY_DWELL_TIME_MS = "dwell_time_ms"
+    const val KEY_APP_TRAY_PACKAGES = "app_tray_packages"
+    const val MAX_APP_TRAY_APPS = 6
     private const val KEY_BINDING_SCHEMA_VERSION = "corner_binding_schema_version"
     private const val BINDING_SCHEMA_VERSION = 1
     const val DEFAULT_DWELL_TIME_MS = 300
@@ -149,6 +151,27 @@ internal object HotCornersSettings {
     fun getDwellTimeMs(context: Context): Int = preferences(context)
         .getInt(KEY_DWELL_TIME_MS, DEFAULT_DWELL_TIME_MS)
         .coerceIn(MIN_DWELL_TIME_MS, MAX_DWELL_TIME_MS)
+
+    /** Returns selected apps in the order they were added to the shared corner tray. */
+    fun getAppTrayPackages(context: Context): List<String> = preferences(context)
+        .getString(KEY_APP_TRAY_PACKAGES, null)
+        .orEmpty()
+        .split('\n')
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .take(MAX_APP_TRAY_APPS)
+
+    /** Saves the shared, ordered app list used by every corner tray. */
+    fun saveAppTrayPackages(context: Context, packageNames: List<String>) {
+        val serialized = packageNames
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .take(MAX_APP_TRAY_APPS)
+            .joinToString("\n")
+        preferences(context).edit().putString(KEY_APP_TRAY_PACKAGES, serialized).apply()
+    }
 
     fun getAvailableActionIds(context: Context): Set<Int>? =
         preferences(context).getStringSet(KEY_AVAILABLE_ACTION_IDS, null)

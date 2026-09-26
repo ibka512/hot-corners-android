@@ -6,6 +6,7 @@ import android.app.Dialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
@@ -23,6 +24,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.BaseAdapter
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
@@ -34,6 +36,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import rikka.shizuku.Shizuku
 import kotlin.math.min
 import java.util.Locale
 
@@ -50,6 +53,12 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var overviewCard: LinearLayout
     private lateinit var switchCard: LinearLayout
     private lateinit var dwellCard: LinearLayout
+    private lateinit var appTrayCard: LinearLayout
+    private lateinit var freeformCard: LinearLayout
+    private lateinit var appTrayCount: TextView
+    private lateinit var appTrayDescription: TextView
+    private lateinit var freeformStatus: TextView
+    private lateinit var freeformActionButton: TextView
     private lateinit var dwellValueText: TextView
     private lateinit var dwellSeekBar: SeekBar
     private lateinit var actionsSection: LinearLayout
@@ -70,9 +79,15 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private var safeRightInsetPx = 0
     private var safeTopInsetPx = 0
     private var safeBottomInsetPx = 0
+    private val shizukuPermissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
+        if (requestCode == FREEFORM_PERMISSION_REQUEST_CODE && ::freeformCard.isInitialized) {
+            refreshShizukuCard()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionResultListener)
         HotCornersSettings.ensureMigrated(this)
         preferences = getSharedPreferences(HotCornersSettings.PREFERENCES_NAME, MODE_PRIVATE)
         buildSettingsScreen()
@@ -88,6 +103,11 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     override fun onPause() {
         preferences.unregisterOnSharedPreferenceChangeListener(this)
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionResultListener)
+        super.onDestroy()
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
@@ -310,6 +330,81 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
         })
 
+        appTrayCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(R.color.md_surface_container, 24)
+        }
+        val appTrayHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        appTrayHeader.addView(
+            text(getString(R.string.app_tray_title), 16f, R.color.md_on_surface).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        appTrayCount = text("", 13f, R.color.md_primary).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        appTrayHeader.addView(appTrayCount, wrap())
+        appTrayCard.addView(appTrayHeader, wrap())
+        appTrayDescription = text("", 13f, R.color.md_on_surface_variant).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
+            }
+        appTrayCard.addView(appTrayDescription, spaced(dp(5)))
+        val manageTrayApps = TextView(this).apply {
+            text = getString(R.string.app_tray_manage)
+            textSize = 14f
+            setTextColor(color(R.color.md_primary))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = ripple(R.color.md_surface_container_high, 100)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showAppTrayPicker() }
+        }
+        appTrayCard.addView(manageTrayApps, spaced(dp(8)))
+
+        freeformCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(R.color.md_secondary_container, 24)
+        }
+        freeformCard.addView(
+            text(getString(R.string.freeform_support_title), 16f, R.color.md_on_secondary_container).apply {
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            },
+            wrap(),
+        )
+        freeformCard.addView(
+            text(getString(R.string.freeform_support_summary), 13f, R.color.md_on_secondary_container).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            spaced(dp(5)),
+        )
+        freeformStatus = text("", 13f, R.color.md_on_secondary_container).apply {
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        freeformCard.addView(freeformStatus, spaced(dp(9)))
+        freeformActionButton = TextView(this).apply {
+            textSize = 14f
+            setTextColor(color(R.color.md_on_primary))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            setPadding(dp(18), 0, dp(18), 0)
+            background = ripple(R.color.md_primary, 100)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { handleShizukuAction() }
+        }
+        freeformCard.addView(freeformActionButton, spaced(dp(9)))
+
         val sectionHeader = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(4))
@@ -466,6 +561,8 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             addSection(wideSettingsPane, overviewCard, topMarginDp = 0)
             addSection(wideSettingsPane, switchCard, topMarginDp = 12)
             addSection(wideSettingsPane, dwellCard, topMarginDp = 12)
+            addSection(wideSettingsPane, appTrayCard, topMarginDp = 12)
+            addSection(wideSettingsPane, freeformCard, topMarginDp = 12)
             addSection(wideSettingsPane, serviceCard, topMarginDp = 24)
             addSection(wideSettingsPane, usageNote, topMarginDp = 14)
             addSection(wideActionsPane, actionsSection, topMarginDp = 0)
@@ -480,6 +577,8 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             addSection(singleColumnBody, overviewCard, topMarginDp = 0)
             addSection(singleColumnBody, switchCard, topMarginDp = 12)
             addSection(singleColumnBody, dwellCard, topMarginDp = 12)
+            addSection(singleColumnBody, appTrayCard, topMarginDp = 12)
+            addSection(singleColumnBody, freeformCard, topMarginDp = 12)
             addSection(singleColumnBody, actionsSection, topMarginDp = 24)
             addSection(singleColumnBody, serviceCard, topMarginDp = 24)
             addSection(singleColumnBody, usageNote, topMarginDp = 14)
@@ -502,6 +601,8 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         featureSwitch.isChecked = HotCornersSettings.isEnabled(this)
         applyingSwitchUpdate = false
         refreshDwellTimeControl()
+        refreshAppTraySummary()
+        refreshShizukuCard()
 
         val configured = HotCorner.entries.count { HotCornersSettings.isCornerConfigured(this, it) }
         countText.text = getString(R.string.configured_count, configured)
@@ -530,6 +631,89 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             HotCornersSettings.DWELL_TIME_STEP_MS
         updateDwellValue(dwellTimeMs)
         updatingDwellTimeControl = false
+    }
+
+    private fun refreshAppTraySummary() {
+        val selectedCount = HotCornersSettings.getAppTrayPackages(this).size
+        appTrayCount.text = getString(R.string.app_tray_count, selectedCount, HotCornersSettings.MAX_APP_TRAY_APPS)
+        appTrayDescription.text = if (selectedCount == 0) {
+            getString(R.string.app_tray_summary_empty)
+        } else {
+            getString(R.string.app_tray_summary_selected, HotCornersSettings.MAX_APP_TRAY_APPS)
+        }
+    }
+
+    private fun refreshShizukuCard() {
+        val state = ShizukuFreeformLauncher.state(this)
+        val statusRes = when (state) {
+            ShizukuState.NOT_INSTALLED -> R.string.freeform_shizuku_missing
+            ShizukuState.NOT_RUNNING -> R.string.freeform_shizuku_not_running
+            ShizukuState.PERMISSION_REQUIRED -> R.string.freeform_shizuku_permission_required
+            ShizukuState.READY -> R.string.freeform_shizuku_ready
+        }
+        val buttonRes = when (state) {
+            ShizukuState.NOT_INSTALLED -> R.string.freeform_shizuku_install
+            ShizukuState.NOT_RUNNING -> R.string.freeform_shizuku_open
+            ShizukuState.PERMISSION_REQUIRED -> R.string.freeform_shizuku_authorize
+            ShizukuState.READY -> R.string.freeform_shizuku_manage
+        }
+        freeformStatus.text = getString(statusRes)
+        freeformActionButton.text = getString(buttonRes)
+        freeformActionButton.contentDescription = getString(buttonRes)
+    }
+
+    private fun handleShizukuAction() {
+        when (ShizukuFreeformLauncher.state(this)) {
+            ShizukuState.NOT_INSTALLED -> openShizukuDownloadPage()
+            ShizukuState.NOT_RUNNING -> openShizukuApp()
+            ShizukuState.PERMISSION_REQUIRED -> requestShizukuPermission()
+            ShizukuState.READY -> openShizukuApp()
+        }
+    }
+
+    private fun requestShizukuPermission() {
+        try {
+            if (Shizuku.shouldShowRequestPermissionRationale()) {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(R.string.freeform_permission_dialog_title)
+                    .setMessage(R.string.freeform_permission_dialog_summary)
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(R.string.freeform_shizuku_authorize) { _, _ ->
+                        requestShizukuPermissionFromService()
+                    }
+                    .show()
+            } else {
+                requestShizukuPermissionFromService()
+            }
+        } catch (_: RuntimeException) {
+            refreshShizukuCard()
+        }
+    }
+
+    private fun requestShizukuPermissionFromService() {
+        try {
+            Shizuku.requestPermission(FREEFORM_PERMISSION_REQUEST_CODE)
+        } catch (_: RuntimeException) {
+            refreshShizukuCard()
+        }
+    }
+
+    private fun openShizukuApp() {
+        val launchIntent = packageManager.getLaunchIntentForPackage(ShizukuFreeformLauncher.SHIZUKU_PACKAGE)
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+        } else {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${ShizukuFreeformLauncher.SHIZUKU_PACKAGE}"),
+                ),
+            )
+        }
+    }
+
+    private fun openShizukuDownloadPage() {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/")))
     }
 
     private fun updateDwellValue(dwellTimeMs: Int) {
@@ -698,6 +882,100 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         val icon: ImageView,
         val label: TextView,
         val radio: RadioButton,
+    )
+
+    private inner class AppTrayAdapter(
+        private val allApps: List<LaunchableApp>,
+        private var selectedPackages: List<String>,
+    ) : BaseAdapter() {
+        private var visibleApps = allApps
+
+        override fun getCount(): Int = visibleApps.size
+
+        override fun getItem(position: Int): LaunchableApp = visibleApps[position]
+
+        override fun getItemId(position: Int): Long = getItem(position).packageName.hashCode().toLong()
+
+        override fun hasStableIds(): Boolean = true
+
+        fun filter(query: String) {
+            val normalizedQuery = query.trim().lowercase(Locale.getDefault())
+            visibleApps = if (normalizedQuery.isEmpty()) {
+                allApps
+            } else {
+                allApps.filter { app ->
+                    app.label.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
+                        app.packageName.lowercase(Locale.getDefault()).contains(normalizedQuery)
+                }
+            }
+            notifyDataSetChanged()
+        }
+
+        fun updateSelection(packageNames: List<String>) {
+            selectedPackages = packageNames.toList()
+            notifyDataSetChanged()
+        }
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val app = getItem(position)
+            val holder = (convertView?.tag as? AppTrayRowViews) ?: createTrayAppRow()
+            holder.icon.setImageDrawable(app.icon)
+            holder.label.text = app.label
+            val selectedIndex = selectedPackages.indexOf(app.packageName)
+            holder.order.text = if (selectedIndex >= 0) {
+                (selectedIndex + 1).toString().padStart(2, '0')
+            } else {
+                ""
+            }
+            holder.checkBox.isChecked = selectedIndex >= 0
+            holder.root.contentDescription = if (selectedIndex >= 0) {
+                getString(R.string.tray_app_selected_accessibility_description, app.label, selectedIndex + 1)
+            } else {
+                getString(R.string.tray_app_unselected_accessibility_description, app.label)
+            }
+            return holder.root
+        }
+
+        private fun createTrayAppRow(): AppTrayRowViews {
+            val row = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(60)
+                setPadding(dp(12), dp(6), dp(4), dp(6))
+            }
+            val icon = ImageView(this@MainActivity).apply {
+                contentDescription = null
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            row.addView(icon, LinearLayout.LayoutParams(dp(40), dp(40)))
+            val label = text("", 15f, R.color.md_on_surface).apply {
+                setPadding(dp(12), 0, dp(8), 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, -2, 1f))
+            val order = text("", 12f, R.color.md_primary).apply {
+                gravity = Gravity.CENTER
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+            row.addView(order, LinearLayout.LayoutParams(dp(30), dp(40)))
+            val checkBox = CheckBox(this@MainActivity).apply {
+                isClickable = false
+                isFocusable = false
+                buttonTintList = ColorStateList.valueOf(color(R.color.md_primary))
+                contentDescription = null
+            }
+            row.addView(checkBox, LinearLayout.LayoutParams(dp(48), dp(48)))
+            return AppTrayRowViews(row, icon, label, order, checkBox).also { row.tag = it }
+        }
+    }
+
+    private class AppTrayRowViews(
+        val root: LinearLayout,
+        val icon: ImageView,
+        val label: TextView,
+        val order: TextView,
+        val checkBox: CheckBox,
     )
 
     private fun showCornerEditor(corner: HotCorner) {
@@ -1015,6 +1293,110 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         )
     }
 
+    private fun showAppTrayPicker() {
+        val apps = LaunchableAppRepository.load(this)
+        val availablePackages = apps.mapTo(mutableSetOf()) { it.packageName }
+        val selectedPackages = HotCornersSettings.getAppTrayPackages(this)
+            .filter(availablePackages::contains)
+            .toMutableList()
+        val dialog = Dialog(this)
+        val content = modalContent()
+        content.addView(
+            text(getString(R.string.app_tray_picker_title), 23f, R.color.md_on_surface).apply {
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            },
+            wrap(),
+        )
+        content.addView(
+            text(getString(R.string.app_tray_picker_summary, HotCornersSettings.MAX_APP_TRAY_APPS),
+                14f, R.color.md_on_surface_variant).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            spaced(dp(6)),
+        )
+
+        val selectedCount = text("", 13f, R.color.md_primary).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        fun refreshSelectionSummary() {
+            selectedCount.text = getString(
+                R.string.app_tray_count,
+                selectedPackages.size,
+                HotCornersSettings.MAX_APP_TRAY_APPS,
+            )
+        }
+        refreshSelectionSummary()
+        content.addView(selectedCount, spaced(dp(8)))
+
+        val searchField = EditText(this).apply {
+            hint = getString(R.string.search_apps_hint)
+            textSize = 15f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
+            minHeight = dp(52)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setTextColor(color(R.color.md_on_surface))
+            setHintTextColor(color(R.color.md_on_surface_variant))
+            background = rounded(R.color.md_surface, 16)
+            contentDescription = getString(R.string.search_apps_hint)
+        }
+        content.addView(searchField, spaced(dp(10)))
+
+        val adapter = AppTrayAdapter(apps, selectedPackages)
+        val appList = ListView(this).apply {
+            this.adapter = adapter
+            divider = android.graphics.drawable.ColorDrawable(color(R.color.md_outline_variant))
+            dividerHeight = dp(1)
+            isNestedScrollingEnabled = true
+            emptyView = text(getString(R.string.app_list_empty), 14f, R.color.md_on_surface_variant).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(20), dp(16), dp(20), dp(16))
+            }
+            setOnItemClickListener { _, _, position, _ ->
+                val app = adapter.getItem(position)
+                if (app.packageName in selectedPackages) {
+                    selectedPackages.remove(app.packageName)
+                } else if (selectedPackages.size < HotCornersSettings.MAX_APP_TRAY_APPS) {
+                    selectedPackages.add(app.packageName)
+                } else {
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.app_tray_limit, HotCornersSettings.MAX_APP_TRAY_APPS),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnItemClickListener
+                }
+                adapter.updateSelection(selectedPackages)
+                refreshSelectionSummary()
+            }
+        }
+        val emptyState = appList.emptyView as View
+        val listFrame = FrameLayout(this).apply {
+            addView(appList, FrameLayout.LayoutParams(-1, -1))
+            addView(emptyState, FrameLayout.LayoutParams(-1, -1))
+        }
+        val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
+            .coerceAtLeast(dp(300))
+        val listHeight = min(dp(360), (availableHeight - dp(270)).coerceAtLeast(dp(100)))
+        content.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
+        searchField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
+        })
+
+        content.addView(dialogActionButton(R.string.close) {
+            HotCornersSettings.saveAppTrayPackages(this, selectedPackages)
+            dialog.dismiss()
+            refreshAppTraySummary()
+        }, footerActionParams())
+        showModal(dialog, content, 640)
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+        )
+    }
+
     private fun actionPickerWidthPx(): Int {
         val availableWidth = scrollContainer.width - scrollContainer.paddingLeft - scrollContainer.paddingRight
         return min((availableWidth - dp(32)).coerceAtLeast(dp(240)), dp(480))
@@ -1102,6 +1484,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
 
     private fun isAvailableInPicker(action: CornerAction): Boolean {
         if (action == CornerAction.NONE) return true
+        if (action.opensAppTray) return true
         if (action.launchesApp) return true
         if (!action.isSupportedByOs()) return false
         val reportedActions = HotCornersSettings.getAvailableActionIds(this)
@@ -1156,6 +1539,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
 
     private companion object {
         const val MAX_BUTTON_ACTIONS = 5
+        const val FREEFORM_PERMISSION_REQUEST_CODE = 7204
         const val EXPANDED_WIDTH_DP = 840
         const val MEDIUM_CONTENT_MAX_DP = 760
         const val WIDE_CONTENT_MAX_DP = 1200
