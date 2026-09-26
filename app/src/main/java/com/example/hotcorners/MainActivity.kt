@@ -21,6 +21,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.BaseAdapter
@@ -55,6 +56,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var dwellCard: LinearLayout
     private lateinit var appTrayCard: LinearLayout
     private lateinit var freeformCard: LinearLayout
+    private lateinit var appTrayIconStrip: LinearLayout
     private lateinit var appTrayCount: TextView
     private lateinit var appTrayDescription: TextView
     private lateinit var freeformStatus: TextView
@@ -71,6 +73,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private lateinit var serviceGlyph: StatusGlyphView
     private lateinit var overviewGlyph: CornerGlyphView
     private lateinit var actionGrid: GridLayout
+    private lateinit var configuredCountText: TextView
     private val actionCards = mutableMapOf<HotCorner, CornerActionCard>()
     private var applyingSwitchUpdate = false
     private var updatingDwellTimeControl = false
@@ -185,18 +188,18 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         mainContent.addView(eyebrow, LinearLayout.LayoutParams(-2, -2))
 
         mainContent.addView(
-            text(getString(R.string.settings_headline), 32f, R.color.md_on_surface).apply {
+            text(getString(R.string.settings_headline), 28f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 letterSpacing = -0.025f
                 setLineSpacing(dp(1).toFloat(), 1.0f)
             },
-            spaced(dp(16)),
+            spaced(dp(10)),
         )
         mainContent.addView(
-            text(getString(R.string.settings_summary), 15f, R.color.md_on_surface_variant).apply {
+            text(getString(R.string.settings_summary), 14f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(4).toFloat(), 1f)
             },
-            spaced(dp(8)),
+            spaced(dp(6)),
         )
 
         // Expressive, supportive container combines a compact visual with live setup progress.
@@ -336,20 +339,30 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             background = rounded(R.color.md_surface_container, 24)
         }
         val appTrayHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
         }
         appTrayHeader.addView(
             text(getString(R.string.app_tray_title), 16f, R.color.md_on_surface).apply {
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             },
-            LinearLayout.LayoutParams(0, -2, 1f),
+            wrap(),
         )
+        appTrayIconStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         appTrayCount = text("", 13f, R.color.md_primary).apply {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        appTrayHeader.addView(appTrayCount, wrap())
+        val appTraySummary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(appTrayIconStrip, LinearLayout.LayoutParams(-2, dp(32)))
+            addView(appTrayCount, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(7) })
+        }
+        appTrayHeader.addView(appTraySummary, spaced(dp(4)))
         appTrayCard.addView(appTrayHeader, wrap())
         appTrayDescription = text("", 13f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
@@ -409,12 +422,24 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(4))
         }
-        sectionHeader.addView(
+        val sectionTitleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sectionTitleRow.addView(
             text(getString(R.string.corner_actions_title), 22f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             },
-            wrap(),
+            LinearLayout.LayoutParams(0, -2, 1f),
         )
+        configuredCountText = text("", 12f, R.color.md_primary).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = rounded(R.color.md_primary_container, 100)
+        }
+        sectionTitleRow.addView(configuredCountText, wrap())
+        sectionHeader.addView(sectionTitleRow, wrap())
         sectionHeader.addView(
             text(getString(R.string.corner_actions_hint), 14f, R.color.md_on_surface_variant).apply {
                 setPadding(0, dp(5), 0, 0)
@@ -558,12 +583,12 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         wideBody.removeAllViews()
 
         if (useWideLayout) {
-            addSection(wideSettingsPane, overviewCard, topMarginDp = 0)
+            addSection(wideSettingsPane, serviceCard, topMarginDp = 0)
             addSection(wideSettingsPane, switchCard, topMarginDp = 12)
+            addSection(wideSettingsPane, overviewCard, topMarginDp = 12)
             addSection(wideSettingsPane, dwellCard, topMarginDp = 12)
             addSection(wideSettingsPane, appTrayCard, topMarginDp = 12)
             addSection(wideSettingsPane, freeformCard, topMarginDp = 12)
-            addSection(wideSettingsPane, serviceCard, topMarginDp = 24)
             addSection(wideSettingsPane, usageNote, topMarginDp = 14)
             addSection(wideActionsPane, actionsSection, topMarginDp = 0)
 
@@ -574,16 +599,17 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             )
             responsiveBody.addView(wideBody, wrap())
         } else {
-            addSection(singleColumnBody, overviewCard, topMarginDp = 0)
+            configuredCountText.visibility = View.VISIBLE
+            addSection(singleColumnBody, serviceCard, topMarginDp = 0)
             addSection(singleColumnBody, switchCard, topMarginDp = 12)
-            addSection(singleColumnBody, dwellCard, topMarginDp = 12)
+            addSection(singleColumnBody, actionsSection, topMarginDp = 16)
+            addSection(singleColumnBody, dwellCard, topMarginDp = 20)
             addSection(singleColumnBody, appTrayCard, topMarginDp = 12)
             addSection(singleColumnBody, freeformCard, topMarginDp = 12)
-            addSection(singleColumnBody, actionsSection, topMarginDp = 24)
-            addSection(singleColumnBody, serviceCard, topMarginDp = 24)
             addSection(singleColumnBody, usageNote, topMarginDp = 14)
             responsiveBody.addView(singleColumnBody, wrap())
         }
+        if (useWideLayout) configuredCountText.visibility = View.GONE
         usingWideLayout = useWideLayout
     }
 
@@ -606,12 +632,20 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
 
         val configured = HotCorner.entries.count { HotCornersSettings.isCornerConfigured(this, it) }
         countText.text = getString(R.string.configured_count, configured)
+        configuredCountText.text = getString(R.string.configured_count_compact, configured)
         overviewGlyph.invalidate()
         actionCards.forEach { (corner, card) ->
             val hoverAction = HotCornersSettings.getHoverAction(this, corner)
             val hoverLabel = formatCornerActionLabel(corner, hoverAction, CornerTrigger.HOVER)
-            val buttonCount = HotCornersSettings.getButtonActions(this, corner).size
-            card.bind(hoverLabel, buttonCount)
+            val buttonActions = HotCornersSettings.getButtonActions(this, corner)
+            val buttonLabels = buttonActions.map { (trigger, action) ->
+                getString(
+                    R.string.button_mapping_format,
+                    getString(trigger.labelResId),
+                    formatCornerActionLabel(corner, action, trigger),
+                )
+            }
+            card.bind(hoverLabel, buttonLabels)
         }
 
         val serviceEnabled = isHotCornersServiceEnabled()
@@ -634,8 +668,26 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     }
 
     private fun refreshAppTraySummary() {
-        val selectedCount = HotCornersSettings.getAppTrayPackages(this).size
+        val selectedPackages = HotCornersSettings.getAppTrayPackages(this)
+        val selectedCount = selectedPackages.size
         appTrayCount.text = getString(R.string.app_tray_count, selectedCount, HotCornersSettings.MAX_APP_TRAY_APPS)
+        appTrayIconStrip.removeAllViews()
+        selectedPackages.forEachIndexed { index, packageName ->
+            val icon = try {
+                packageManager.getApplicationIcon(packageName)
+            } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                return@forEachIndexed
+            }
+            appTrayIconStrip.addView(ImageView(this).apply {
+                setImageDrawable(icon)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                isFocusable = false
+                isClickable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                if (index != selectedPackages.lastIndex) marginEnd = dp(4)
+            })
+        }
         appTrayDescription.text = if (selectedCount == 0) {
             getString(R.string.app_tray_summary_empty)
         } else {
@@ -793,15 +845,26 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             setOnClickListener { showCornerEditor(corner) }
         }
 
-        fun bind(label: String, buttonCount: Int) {
+        fun bind(label: String, buttonLabels: List<String>) {
             hoverTitle.text = getString(R.string.corner_hover_summary, label)
-            buttonTitle.text = getString(R.string.corner_button_count, buttonCount)
+            buttonTitle.text = when {
+                buttonLabels.isEmpty() -> getString(R.string.corner_button_none)
+                buttonLabels.size == 1 -> buttonLabels.first()
+                else -> getString(R.string.corner_button_more, buttonLabels.first(), buttonLabels.size - 1)
+            }
+            buttonTitle.maxLines = 2
+            buttonTitle.ellipsize = android.text.TextUtils.TruncateAt.END
             glyph.configured = HotCornersSettings.isCornerConfigured(this@MainActivity, corner)
+            val fullButtonSummary = if (buttonLabels.isEmpty()) {
+                getString(R.string.corner_button_none)
+            } else {
+                buttonLabels.joinToString(separator = "；")
+            }
             contentDescription = getString(
                 R.string.corner_action_button_description,
                 getString(corner.labelResId),
                 label,
-                buttonCount,
+                fullButtonSummary,
             )
         }
     }
@@ -1221,7 +1284,8 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         val apps = LaunchableAppRepository.load(this)
         val dialog = Dialog(this)
         val content = modalContent()
-        content.addView(
+        val pickerBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        pickerBody.addView(
             text(getString(R.string.choose_app_title), 23f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             },
@@ -1232,7 +1296,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         } else {
             R.string.choose_app_summary
         }
-        content.addView(
+        pickerBody.addView(
             text(getString(summaryRes), 14f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
             },
@@ -1251,7 +1315,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             background = rounded(R.color.md_surface, 16)
             contentDescription = getString(R.string.search_apps_hint)
         }
-        content.addView(searchField, spaced(dp(12)))
+        pickerBody.addView(searchField, spaced(dp(12)))
 
         val adapter = LaunchableAppAdapter(apps, HotCornersSettings.getAppPackage(this, corner, trigger))
         val appList = ListView(this).apply {
@@ -1276,15 +1340,22 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             addView(emptyState, FrameLayout.LayoutParams(-1, -1))
         }
         val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
-            .coerceAtLeast(dp(280))
-        val listHeight = min(dp(360), (availableHeight - dp(292)).coerceAtLeast(dp(100)))
-        content.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
+            .coerceAtLeast(dp(240))
+        val listHeight = min(dp(320), (availableHeight - dp(220)).coerceAtLeast(dp(160)))
+        pickerBody.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
         })
 
+        content.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(pickerBody)
+            },
+            LinearLayout.LayoutParams(-1, 0, 1f),
+        )
         content.addView(dialogActionButton(R.string.cancel) { dialog.dismiss() }, footerActionParams())
         showModal(dialog, content, 640)
         dialog.window?.setSoftInputMode(
@@ -1299,15 +1370,18 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         val selectedPackages = HotCornersSettings.getAppTrayPackages(this)
             .filter(availablePackages::contains)
             .toMutableList()
+        var selectedShape = HotCornersSettings.getAppTrayIconShape(this)
+        var blurBehindEnabled = HotCornersSettings.isAppTrayBlurBehindEnabled(this)
         val dialog = Dialog(this)
         val content = modalContent()
-        content.addView(
+        val pickerBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        pickerBody.addView(
             text(getString(R.string.app_tray_picker_title), 23f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             },
             wrap(),
         )
-        content.addView(
+        pickerBody.addView(
             text(getString(R.string.app_tray_picker_summary, HotCornersSettings.MAX_APP_TRAY_APPS),
                 14f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
@@ -1326,7 +1400,74 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             )
         }
         refreshSelectionSummary()
-        content.addView(selectedCount, spaced(dp(8)))
+        pickerBody.addView(selectedCount, spaced(dp(8)))
+
+        pickerBody.addView(sectionLabel(getString(R.string.app_tray_icon_shape)), spaced(dp(12)))
+        val shapePreviewIcon = apps.firstOrNull()?.icon ?: getDrawable(R.mipmap.ic_launcher)!!
+        val shapeChoices = mutableMapOf<HotCornersSettings.TrayIconShape, LinearLayout>()
+        val shapeChoiceRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        fun refreshShapeChoices() {
+            shapeChoices.forEach { (shape, choice) ->
+                val selected = shape == selectedShape
+                choice.background = trayShapeCardBackground(selected)
+                choice.isSelected = selected
+                choice.contentDescription = getString(
+                    if (selected) R.string.app_tray_shape_selected_accessibility
+                    else R.string.app_tray_shape_accessibility,
+                    trayShapeLabel(shape),
+                )
+            }
+        }
+        HotCornersSettings.TrayIconShape.entries.forEachIndexed { index, shape ->
+            val choice = trayShapeCard(shape, shapePreviewIcon, shape == selectedShape)
+            choice.setOnClickListener {
+                selectedShape = shape
+                refreshShapeChoices()
+            }
+            shapeChoices[shape] = choice
+            shapeChoiceRow.addView(choice, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                if (index != 0) marginStart = dp(6)
+            })
+        }
+        refreshShapeChoices()
+        pickerBody.addView(shapeChoiceRow, spaced(dp(5)))
+
+        val canBlurBehind = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val blurSummary = text(
+            getString(
+                if (canBlurBehind) R.string.app_tray_blur_summary
+                else R.string.app_tray_blur_requires_android12,
+            ),
+            12f,
+            R.color.md_on_surface_variant,
+        ).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }
+        val blurTextColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(text(getString(R.string.app_tray_blur_title), 14f, R.color.md_on_surface)
+                .apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }, wrap())
+            addView(blurSummary, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+        }
+        val blurSwitch = Switch(this).apply {
+            isChecked = blurBehindEnabled
+            isEnabled = canBlurBehind
+            contentDescription = getString(R.string.app_tray_blur_title)
+        }
+        val blurOption = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(7), dp(2), dp(3))
+            addView(blurTextColumn, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(blurSwitch, LinearLayout.LayoutParams(-2, dp(52)).apply { marginStart = dp(8) })
+            setOnClickListener {
+                if (blurSwitch.isEnabled) blurSwitch.isChecked = !blurSwitch.isChecked
+            }
+        }
+        pickerBody.addView(blurOption, spaced(dp(4)))
 
         val searchField = EditText(this).apply {
             hint = getString(R.string.search_apps_hint)
@@ -1340,7 +1481,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             background = rounded(R.color.md_surface, 16)
             contentDescription = getString(R.string.search_apps_hint)
         }
-        content.addView(searchField, spaced(dp(10)))
+        pickerBody.addView(searchField, spaced(dp(10)))
 
         val adapter = AppTrayAdapter(apps, selectedPackages)
         val appList = ListView(this).apply {
@@ -1377,34 +1518,98 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         }
         val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
             .coerceAtLeast(dp(300))
-        val listHeight = min(dp(360), (availableHeight - dp(270)).coerceAtLeast(dp(100)))
-        content.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
+        val listHeight = min(dp(240), (availableHeight - dp(360)).coerceAtLeast(dp(140)))
+        pickerBody.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
         })
 
+        content.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(pickerBody)
+            },
+            LinearLayout.LayoutParams(-1, 0, 1f),
+        )
         content.addView(dialogActionButton(R.string.close) {
             HotCornersSettings.saveAppTrayPackages(this, selectedPackages)
+            HotCornersSettings.saveAppTrayIconShape(this, selectedShape)
+            HotCornersSettings.saveAppTrayBlurBehindEnabled(this, blurSwitch.isChecked)
             dialog.dismiss()
             refreshAppTraySummary()
         }, footerActionParams())
-        showModal(dialog, content, 640)
+        showModal(dialog, content, 760)
         dialog.window?.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
         )
     }
 
+    private fun trayShapeLabel(shape: HotCornersSettings.TrayIconShape): String = getString(
+        when (shape) {
+            HotCornersSettings.TrayIconShape.CIRCLE -> R.string.app_tray_shape_circle
+            HotCornersSettings.TrayIconShape.ROUNDED_RECTANGLE -> R.string.app_tray_shape_rounded_rectangle
+            HotCornersSettings.TrayIconShape.RECTANGLE -> R.string.app_tray_shape_rectangle
+        },
+    )
+
+    private fun trayShapeCard(
+        shape: HotCornersSettings.TrayIconShape,
+        icon: android.graphics.drawable.Drawable,
+        selected: Boolean,
+    ) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        minimumHeight = dp(86)
+        setPadding(dp(4), dp(6), dp(4), dp(5))
+        isClickable = true
+        isFocusable = true
+        background = trayShapeCardBackground(selected)
+
+        val preview = ImageView(this@MainActivity).apply {
+            val iconCopy = icon.constantState?.newDrawable(resources)?.mutate() ?: icon
+            setImageDrawable(iconCopy)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    when (shape) {
+                        HotCornersSettings.TrayIconShape.CIRCLE ->
+                            outline.setOval(0, 0, view.width, view.height)
+                        HotCornersSettings.TrayIconShape.ROUNDED_RECTANGLE ->
+                            outline.setRoundRect(0, 0, view.width, view.height, dp(10).toFloat())
+                        HotCornersSettings.TrayIconShape.RECTANGLE ->
+                            outline.setRect(0, 0, view.width, view.height)
+                    }
+                }
+            }
+            contentDescription = null
+        }
+        addView(preview, LinearLayout.LayoutParams(dp(40), dp(40)))
+        addView(text(trayShapeLabel(shape), 12f, R.color.md_on_surface).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(3), 0, dp(2))
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+    }
+
+    private fun trayShapeCardBackground(selected: Boolean) = GradientDrawable().apply {
+        setColor(color(if (selected) R.color.md_primary_container else R.color.md_surface_container))
+        setStroke(dp(if (selected) 2 else 1), color(
+            if (selected) R.color.md_primary else R.color.md_outline_variant,
+        ))
+        cornerRadius = dp(16).toFloat()
+    }
+
     private fun actionPickerWidthPx(): Int {
         val availableWidth = scrollContainer.width - scrollContainer.paddingLeft - scrollContainer.paddingRight
-        return min((availableWidth - dp(32)).coerceAtLeast(dp(240)), dp(480))
+        return min((availableWidth - dp(24)).coerceAtLeast(dp(160)), dp(480))
     }
 
     private fun modalContent() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(24), dp(22), dp(24), dp(16))
+        setPadding(dp(20), dp(18), dp(20), dp(12))
         background = rounded(R.color.md_surface_container_high, 28)
     }
 
@@ -1439,7 +1644,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         setTypeface(typeface, android.graphics.Typeface.BOLD)
         gravity = Gravity.CENTER
         minWidth = dp(48)
-        minHeight = dp(44)
+        minHeight = dp(48)
         setPadding(dp(5), 0, dp(5), 0)
         background = ripple(R.color.md_surface_container_high, 12)
         isClickable = true
@@ -1468,7 +1673,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         dialog.window?.let { window ->
             window.setBackgroundDrawableResource(android.R.color.transparent)
             val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx - dp(32))
-                .coerceAtLeast(dp(240))
+                .coerceAtLeast(dp(160))
             window.setLayout(actionPickerWidthPx(), min(dp(maxHeightDp), availableHeight))
         }
     }

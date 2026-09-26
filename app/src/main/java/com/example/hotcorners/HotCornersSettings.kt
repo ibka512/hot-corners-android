@@ -13,6 +13,8 @@ internal object HotCornersSettings {
     const val KEY_AVAILABLE_ACTION_IDS = "available_system_action_ids"
     const val KEY_DWELL_TIME_MS = "dwell_time_ms"
     const val KEY_APP_TRAY_PACKAGES = "app_tray_packages"
+    const val KEY_APP_TRAY_ICON_SHAPE = "app_tray_icon_shape"
+    const val KEY_APP_TRAY_BLUR_BEHIND = "app_tray_blur_behind"
     const val MAX_APP_TRAY_APPS = 6
     private const val KEY_BINDING_SCHEMA_VERSION = "corner_binding_schema_version"
     private const val BINDING_SCHEMA_VERSION = 1
@@ -20,6 +22,17 @@ internal object HotCornersSettings {
     const val MIN_DWELL_TIME_MS = 0
     const val MAX_DWELL_TIME_MS = 1000
     const val DWELL_TIME_STEP_MS = 50
+
+    enum class TrayIconShape(val preferenceId: String) {
+        CIRCLE("circle"),
+        ROUNDED_RECTANGLE("rounded_rectangle"),
+        RECTANGLE("rectangle");
+
+        companion object {
+            fun fromPreferenceId(value: String?): TrayIconShape =
+                entries.firstOrNull { it.preferenceId == value } ?: ROUNDED_RECTANGLE
+        }
+    }
 
     // Legacy keys retained for the one-time migration from v1.3 and earlier.
     fun actionKey(corner: HotCorner): String = "action_${corner.preferenceId}"
@@ -171,6 +184,21 @@ internal object HotCornersSettings {
             .take(MAX_APP_TRAY_APPS)
             .joinToString("\n")
         preferences(context).edit().putString(KEY_APP_TRAY_PACKAGES, serialized).apply()
+    }
+
+    fun getAppTrayIconShape(context: Context): TrayIconShape = TrayIconShape.fromPreferenceId(
+        preferences(context).getString(KEY_APP_TRAY_ICON_SHAPE, null),
+    )
+
+    fun saveAppTrayIconShape(context: Context, shape: TrayIconShape) {
+        preferences(context).edit().putString(KEY_APP_TRAY_ICON_SHAPE, shape.preferenceId).apply()
+    }
+
+    fun isAppTrayBlurBehindEnabled(context: Context): Boolean = preferences(context)
+        .getBoolean(KEY_APP_TRAY_BLUR_BEHIND, false)
+
+    fun saveAppTrayBlurBehindEnabled(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean(KEY_APP_TRAY_BLUR_BEHIND, enabled).apply()
     }
 
     fun getAvailableActionIds(context: Context): Set<Int>? =

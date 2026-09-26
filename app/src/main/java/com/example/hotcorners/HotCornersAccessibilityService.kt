@@ -16,6 +16,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
+import java.util.function.Consumer
 import kotlin.math.roundToInt
 
 /** Creates transparent mouse-input windows only for corners with a configured action. */
@@ -35,6 +36,9 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private var preferences: SharedPreferences? = null
     private var windowManager: WindowManager? = null
     private var appTrayOverlay: CornerAppTrayOverlay? = null
+    private var appTrayLayoutParams: WindowManager.LayoutParams? = null
+    private var crossWindowBlurListener: Consumer<Boolean>? = null
+    private var appTrayBlurRequested = false
     private var enabled = HotCornersSettings.DEFAULT_ENABLED
 
     override fun onServiceConnected() {
@@ -72,6 +76,8 @@ class HotCornersAccessibilityService : AccessibilityService(),
         } else if (key == HotCornersSettings.KEY_ENABLED) {
             enabled = HotCornersSettings.isEnabled(this)
             rebuildCornerOverlays(resetArming = true)
+        } else if (key == HotCornersSettings.KEY_APP_TRAY_BLUR_BEHIND) {
+            updateAppTrayBlurPreference()
         } else {
             HotCorner.fromPreferenceKey(key)?.let(::updateCornerOverlay)
         }
@@ -311,6 +317,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
             context = this,
             corner = corner,
             apps = apps,
+            iconShape = HotCornersSettings.getAppTrayIconShape(this),
             onOpenApp = { app -> openTrayApp(app, smallWindow = false) },
             onOpenSmallWindow = { app, x, y ->
                 openTrayApp(app, smallWindow = true, preferredCenter = Point(x, y))
@@ -321,8 +328,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
@@ -333,8 +339,13 @@ class HotCornersAccessibilityService : AccessibilityService(),
         }
 
         try {
-            windowManager?.addView(tray, layoutParams) ?: return
+            val manager = windowManager ?: return
+            appTrayBlurRequested = HotCornersSettings.isAppTrayBlurBehindEnabled(this)
+            applyAppTrayWindowEffects(layoutParams, appTrayBlurRequested, isCrossWindowBlurEnabled(manager))
+            manager.addView(tray, layoutParams)
             appTrayOverlay = tray
+            appTrayLayoutParams = layoutParams
+            registerCrossWindowBlurListener(tray)
             // The full-screen layer hides hover-exit events from the underlying corner window.
             // Mark the pointer as outside so the next genuine entry can arm that corner again.
             cornerStates.getValue(corner).apply {
@@ -343,7 +354,10 @@ class HotCornersAccessibilityService : AccessibilityService(),
                 hoverExitWasButton = false
             }
             tray.post {
-                if (appTrayOverlay === tray) tray.animateIn()
+                if (appTrayOverlay === tray) {
+                    tray.requestInitialFocus()
+                    tray.animateIn()
+                }
             }
         } catch (exception: RuntimeException) {
             Log.e(TAG, "Could not show the app tray at $corner", exception)
@@ -390,6 +404,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
         }
         appTrayOverlay = null
         tray.animateOut {
+            clearAppTrayWindowEffects(tray, updateWindow = false)
             try {
                 windowManager?.removeViewImmediate(tray)
             } catch (_: IllegalArgumentException) {
@@ -402,6 +417,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private fun removeAppTrayOverlay() {
         val tray = appTrayOverlay ?: return
         appTrayOverlay = null
+        clearAppTrayWindowEffects(tray, updateWindow = false)
         tray.animate().cancel()
         try {
             windowManager?.removeViewImmediate(tray)
@@ -409,6 +425,113 @@ class HotCornersAccessibilityService : AccessibilityService(),
             // The window may already have been detached during a service restart.
         }
     }
+
+    private fun isCrossWindowBlurEnabled(manager: WindowManager): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && manager.isCrossWindowBlurEnabled
+
+    private fun applyAppTrayWindowEffects(
+        layoutParams: WindowManager.LayoutParams,
+        requested: Boolean,
+        blurAvailable: Boolean,
+    ) {
+        val flagsToClear = WindowManager.LayoutParams.FLAG_BLUR_BEHIND or
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND
+        layoutParams.flags = layoutParams.flags and flagsToClear.inv()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            layoutParams.setBlurBehindRadius(
+                if (requested && blurAvailable) dp(BLUR_BEHIND_RADIUS_DP) else 0,
+            )
+        }
+
+        if (!requested) {
+            layoutParams.dimAmount = 0f
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurAvailable) {
+            layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+            layoutParams.dimAmount = 0f
+        } else {
+            // Some devices disable cross-window blur at runtime; keep the tray legible with a light scrim.
+            layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            layoutParams.dimAmount = BLUR_FALLBACK_DIM_AMOUNT
+        }
+    }
+
+    private fun registerCrossWindowBlurListener(tray: CornerAppTrayOverlay) {
+        if (!appTrayBlurRequested || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            crossWindowBlurListener != null
+        ) return
+        val manager = windowManager ?: return
+        val listener = Consumer<Boolean> { blurAvailable ->
+            mainHandler.post {
+                if (appTrayOverlay !== tray || !appTrayBlurRequested) return@post
+                val layoutParams = appTrayLayoutParams ?: return@post
+                applyAppTrayWindowEffects(layoutParams, requested = true, blurAvailable = blurAvailable)
+                try {
+                    manager.updateViewLayout(tray, layoutParams)
+                } catch (exception: RuntimeException) {
+                    Log.w(TAG, "Could not update the app tray blur state", exception)
+                }
+            }
+        }
+        crossWindowBlurListener = listener
+        try {
+            manager.addCrossWindowBlurEnabledListener(listener)
+        } catch (exception: RuntimeException) {
+            crossWindowBlurListener = null
+            Log.w(TAG, "Could not monitor cross-window blur availability", exception)
+        }
+    }
+
+    private fun unregisterCrossWindowBlurListener() {
+        val listener = crossWindowBlurListener ?: return
+        crossWindowBlurListener = null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        try {
+            windowManager?.removeCrossWindowBlurEnabledListener(listener)
+        } catch (exception: RuntimeException) {
+            Log.w(TAG, "Could not remove the cross-window blur listener", exception)
+        }
+    }
+
+    private fun updateAppTrayBlurPreference() {
+        val tray = appTrayOverlay ?: return
+        val layoutParams = appTrayLayoutParams ?: return
+        val manager = windowManager ?: return
+        appTrayBlurRequested = HotCornersSettings.isAppTrayBlurBehindEnabled(this)
+        applyAppTrayWindowEffects(
+            layoutParams,
+            appTrayBlurRequested,
+            isCrossWindowBlurEnabled(manager),
+        )
+        try {
+            manager.updateViewLayout(tray, layoutParams)
+        } catch (exception: RuntimeException) {
+            Log.w(TAG, "Could not apply the app tray blur preference", exception)
+        }
+        if (appTrayBlurRequested) registerCrossWindowBlurListener(tray) else unregisterCrossWindowBlurListener()
+    }
+
+    private fun clearAppTrayWindowEffects(tray: CornerAppTrayOverlay, updateWindow: Boolean) {
+        unregisterCrossWindowBlurListener()
+        val layoutParams = appTrayLayoutParams
+        if (layoutParams != null) {
+            applyAppTrayWindowEffects(layoutParams, requested = false, blurAvailable = false)
+            if (updateWindow) {
+                try {
+                    windowManager?.updateViewLayout(tray, layoutParams)
+                } catch (exception: RuntimeException) {
+                    Log.w(TAG, "Could not clear app tray blur before dismissal", exception)
+                }
+            }
+        }
+        appTrayLayoutParams = null
+        appTrayBlurRequested = false
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     private fun cancelPendingTrigger(state: CornerState) {
         state.pendingTrigger?.let(mainHandler::removeCallbacks)
@@ -432,5 +555,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
     private companion object {
         const val TAG = "HotCornersService"
         const val HOTSPOT_SIZE_DP = 24
+        const val BLUR_BEHIND_RADIUS_DP = 20
+        const val BLUR_FALLBACK_DIM_AMOUNT = 0.16f
     }
 }
