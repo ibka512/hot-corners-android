@@ -2,10 +2,42 @@
 <resources>
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#3568D4</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#FAFAFC</item>
-        <item name="android:navigationBarColor">#FAFAFC</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:colorControlActivated">@color/md_primary</item>
+        <item name="android:colorControlNormal">@color/md_on_surface_variant</item>
+        <item name="android:windowBackground">@color/md_background</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="android:textColorPrimary">@color/md_on_surface</item>
+        <item name="android:textColorSecondary">@color/md_on_surface_variant</item>
+        <item name="android:statusBarColor">@color/md_background</item>
+        <item name="android:navigationBarColor">@color/md_background</item>
+        <item name="android:windowLightStatusBar">@bool/md_light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/md_light_system_bars</item>
     </style>
+
+    <bool name="md_light_system_bars">true</bool>
+
+    <color name="md_primary">#4559A8</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#DEE2FF</color>
+    <color name="md_on_primary_container">#111B4B</color>
+    <color name="md_secondary">#625B71</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_secondary_container">#E8DEF8</color>
+    <color name="md_on_secondary_container">#201A2B</color>
+    <color name="md_tertiary">#A44735</color>
+    <color name="md_on_tertiary">#FFFFFF</color>
+    <color name="md_tertiary_container">#FFDAD2</color>
+    <color name="md_on_tertiary_container">#3B0904</color>
+    <color name="md_background">#F8F7FC</color>
+    <color name="md_on_surface">#1B1B22</color>
+    <color name="md_surface">#FFFFFF</color>
+    <color name="md_surface_container">#F0EFF6</color>
+    <color name="md_surface_container_high">#E9E8F0</color>
+    <color name="md_surface_variant">#E5E1EC</color>
+    <color name="md_on_surface_variant">#494650</color>
+    <color name="md_outline">#797680</color>
+    <color name="md_outline_variant">#C9C5D0</color>
+    <color name="md_error">#B3261E</color>
+    <color name="ic_launcher_background">#DEE2FF</color>
 </resources>
