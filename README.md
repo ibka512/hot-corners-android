@@ -14,6 +14,8 @@ Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用
 - 每次进入角落最多触发一次；鼠标离开后重新进入，才会再次触发。
 - 仅处理鼠标悬停事件，不响应触屏和触控笔输入。
 - 屏幕方向或配置变化后，服务会重新定位角落区域。
+- 设置页根据应用可用窗口宽度调整排版：小于 840 dp 时使用单列，达到或超过 840 dp 时切换为左右分栏，四个角落卡片以 2 × 2 网格展示。分屏或调整窗口大小时，页面会自动重新排版。
+- 动作选择器会根据当前窗口限制尺寸；选项较多时可滚动查看。
 - 设置页采用 Material 3 Expressive 的视觉风格，包括动态色彩、明暗主题、分组容器和清晰的文字层级。Android 12 及以上版本会使用系统壁纸色彩。
 - 启动器图标采用自适应图标格式；Android 13 及以上版本支持系统主题图标所需的单色图层。
 
@@ -25,7 +27,7 @@ Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用
 
 ## 安装与启用
 
-1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载 APK，或按下方说明自行构建。
+1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新版 APK。当前版本为 [v1.1.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.1.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.1.0/Hot-Corners-for-Android-v1.1.0-debug.apk)。
 2. 安装并打开应用。
 3. 在设置页点按“管理无障碍服务”，进入系统无障碍设置。
 4. 在“已安装的应用”或系统对应列表中找到 **Hot Corners for Android**，然后开启服务。
@@ -74,4 +76,4 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 ## 发布包说明
 
-GitHub Releases 提供可安装 APK。当前验证版由 `debug` 构建变体生成，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
+当前公开版本为 v1.1.0。GitHub Release 提供由 `debug` 构建变体生成的可安装 APK，包内含应用启动器图标，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
