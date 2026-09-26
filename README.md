@@ -1,41 +1,65 @@
 # Hot Corners for Android
 
-原生 Kotlin 验证 Demo：通过 `AccessibilityService + TYPE_ACCESSIBILITY_OVERLAY` 为屏幕四角配置鼠标触发动作。
+Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用，用于在屏幕四角配置鼠标悬停动作。应用通过无障碍服务创建透明的角落区域；鼠标指针进入已启用区域并停留约 300 毫秒后，应用执行对应的系统操作。
 
 ## 功能
 
-- 使用四角取景符号的简约自适应启动器图标，支持 Android 13+ 单色图标。
-- 设置页采用 Material 3 Expressive 的动态色彩、明暗主题、圆润分组容器、清晰字号层级和轻量触控反馈；Android 12+ 会跟随系统壁纸色彩。
-- 四个角可以分别设置为：关闭、返回、桌面、多任务、通知栏、快捷设置、电源菜单、锁屏、截图或分屏。
-- 默认设置保持已验证的行为：左上角打开多任务，其余角关闭。
-- 鼠标在已启用角落停留约 300 ms 后触发；鼠标离开后重新武装，同一次停留只触发一次。
-- 仅处理 `SOURCE_MOUSE` 悬停事件；触屏和触控笔不会执行动作。
-- 只为已配置动作的角落创建透明 24 dp 区域。未配置动作的角落不会创建窗口。
-- 设备旋转或屏幕配置变化时，服务会重新定位角落窗口。
-- Android 9（API 28）及以上提供锁屏和截图；分屏仅在 Android 11（API 30）及以上且系统当前提供该动作时显示。
-- 服务不读取当前应用的无障碍窗口树，也不请求手势或触摸探索控制。
+- 分别配置左上、右上、左下和右下角。
+- 为角落选择关闭、返回、桌面、多任务、通知栏、快捷设置、电源菜单、锁屏、截图或分屏等系统操作。具体可用操作取决于 Android 版本、设备和系统当前提供的能力。
+- 默认启用左上角多任务操作；其余角落默认关闭。
+- 每次进入角落最多触发一次；鼠标离开后重新进入，才会再次触发。
+- 仅处理鼠标悬停事件，不响应触屏和触控笔输入。
+- 屏幕方向或配置变化后，服务会重新定位角落区域。
+- 设置页采用 Material 3 Expressive 的视觉风格，包括动态色彩、明暗主题、分组容器和清晰的文字层级。Android 12 及以上版本会使用系统壁纸色彩。
+- 启动器图标采用自适应图标格式；Android 13 及以上版本支持系统主题图标所需的单色图层。
 
-启用的透明悬停窗口需要成为鼠标指针的事件目标，因此触摸屏在已启用角落的 24 dp 区域内点按时，点按可能由窗口接收；这些点按不会执行角落动作。
+## 系统要求
 
-设置保存在应用私有的 `SharedPreferences` 中。已有安装的总开关键保持不变，原左上角多任务行为作为默认设置保留。
+- 最低支持 Android 8.0（API 26）。
+- 锁屏和截图操作要求 Android 9（API 28）或更高版本。
+- 分屏操作要求 Android 11（API 30）或更高版本，并且系统需向无障碍服务提供该操作。
+
+## 安装与启用
+
+1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载 APK，或按下方说明自行构建。
+2. 安装并打开应用。
+3. 在设置页点按“管理无障碍服务”，进入系统无障碍设置。
+4. 在“已安装的应用”或系统对应列表中找到 **Hot Corners for Android**，然后开启服务。
+5. 返回应用，确认“触发角总开关”处于开启状态。
+6. 点按四个角落卡片，为各角选择需要执行的操作。
+7. 连接鼠标，将指针移至已配置的角落并停留约 300 毫秒。鼠标离开该角后，可以再次触发。
+
+关闭应用内的总开关会暂停全部角落操作；也可以在系统无障碍设置中关闭本服务。
+
+## 无障碍权限与交互说明
+
+本应用需要用户在 Android 系统设置中手动启用无障碍服务，才能在其他应用上接收鼠标悬停事件并执行系统操作。应用不会读取当前应用的无障碍窗口树，也不请求手势控制或触摸探索权限。角落配置保存在应用私有的本地 `SharedPreferences` 中。
+
+为接收鼠标悬停，已启用的角落会创建一个透明的 24 dp 区域。因此，触摸屏在该区域内的点按可能由悬停窗口接收；触屏点按不会执行角落动作。关闭或未配置动作的角落不会创建悬停窗口。
 
 ## 构建
 
-项目使用 Android Gradle Plugin 9.4.0、Gradle Wrapper 9.6.0、Android SDK Platform 35 和 Build Tools 36.0.0，最低 Android 版本为 API 26。Kotlin 由 AGP 内置支持，不需要额外 Kotlin Gradle 插件或第三方运行时依赖。
+项目使用 Android Gradle Plugin 9.4.0、Gradle Wrapper 9.6.0、Android SDK Platform 35 和 Build Tools 36.0.0。Kotlin 由 Android Gradle Plugin 提供；项目未引入第三方运行时依赖。
 
-用 Android Studio 打开此目录，或在终端确保 JDK 与 Android SDK 已配置后运行：
+使用 Android Studio 打开项目，或在已配置 JDK 与 Android SDK 的环境中运行：
 
 ```sh
 ./gradlew :app:assembleDebug
 ```
 
-APK 输出位置：
+构建完成后，APK 位于：
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-命令行构建示例（按本机 Android Studio 与 SDK 安装位置调整路径）：
+安装到已连接的设备：
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+如需在命令行配置本机工具路径，可使用以下示例并替换为实际安装位置：
 
 ```sh
 export JAVA_HOME="/path/to/Android Studio.app/Contents/jbr/Contents/Home"
@@ -44,13 +68,6 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 ./gradlew :app:assembleDebug
 ```
 
-## 安装并开启无障碍服务
+## 发布包说明
 
-1. 在 Android Studio 中运行，或将 `app/build/outputs/apk/debug/app-debug.apk` 安装到设备。命令行安装示例：`adb install -r app/build/outputs/apk/debug/app-debug.apk`。
-2. 打开 **Hot Corners for Android**，点击 **打开无障碍设置**。
-3. 在无障碍设置的 **已安装的应用**（不同系统也可能叫“已下载的应用”）中找到 **Hot Corners for Android** 并开启服务。
-4. 返回应用，确认 **启用触发角** 开关已开启。
-5. 点按四个角落卡片，为每个角选择动作。默认左上角是 **多任务**，其他角为 **关闭**。
-6. 连接鼠标，将指针移到已配置的角落并停留约 300 ms。鼠标离开后可以再次触发。
-
-关闭全部触发角：在应用内关闭 **启用触发角**，或在 Android 无障碍设置中关闭服务。
+GitHub Releases 提供可安装 APK。当前验证版由 `debug` 构建变体生成，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
