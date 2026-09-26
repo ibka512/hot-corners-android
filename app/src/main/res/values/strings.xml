@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hot Corners for Android</string>
+    <string name="accessibility_service_label">Hot Corners for Android</string>
+    <string name="accessibility_service_description">在屏幕四角创建透明的鼠标悬停区域。鼠标在左上角停留片刻后打开最近任务。</string>
+    <string name="settings_title">Hot Corners</string>
+    <string name="settings_summary">鼠标进入屏幕左上角并停留约 300 毫秒，会打开最近任务。鼠标离开角落后才能再次触发。</string>
+    <string name="enable_hot_corner">启用左上角触发角</string>
+    <string name="accessibility_status_on">无障碍服务：已开启</string>
+    <string name="accessibility_status_off">无障碍服务：未开启</string>
+    <string name="open_accessibility_settings">打开无障碍设置</string>
+    <string name="service_steps">在无障碍设置的“已安装的应用”中找到“Hot Corners for Android”并开启服务，然后返回此页。</string>
+    <string name="other_corners_note">屏幕四角都会创建透明的 24 dp 悬停区域。本 Demo 目前只有左上角会执行动作。</string>
+</resources>
