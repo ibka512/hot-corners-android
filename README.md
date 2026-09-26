@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/src/main/res/drawable-nodpi/ic_launcher_foreground.png" alt="Hot Corners for Android 应用图标" width="160" />
+</p>
+
 # Hot Corners for Android
 
 Hot Corners for Android 是一款以 Kotlin 编写的原生 Android 验证应用，用于在屏幕四角配置鼠标悬停动作。应用通过无障碍服务创建透明的角落区域；鼠标指针进入已启用区域并停留约 300 毫秒后，应用执行对应的系统操作。
