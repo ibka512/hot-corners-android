@@ -1,21 +1,25 @@
 # Hot Corners for Android
 
-原生 Kotlin 验证 Demo：通过 `AccessibilityService + TYPE_ACCESSIBILITY_OVERLAY` 在屏幕四角创建透明的 24 dp 鼠标悬停区域。当前只有左上角配置了动作：鼠标进入后停留约 300 ms，执行 Android「最近任务」。
+原生 Kotlin 验证 Demo：通过 `AccessibilityService + TYPE_ACCESSIBILITY_OVERLAY` 为屏幕四角配置鼠标触发动作。
 
-## 行为
+## 功能
 
-- 仅处理 `SOURCE_MOUSE` 的悬停事件；触屏和触控笔不会触发最近任务。
-- 鼠标离开左上角区域时取消等待并重新武装。
-- 动作执行前立即锁定，鼠标仍留在区域内时不会重复触发。
-- 右上、左下、右下目前是透明占位区域。
-- 设备旋转或屏幕配置变化时，服务会按屏幕重建四角窗口。
+- 四个角可以分别设置为：关闭、返回、桌面、多任务、通知栏、快捷设置、电源菜单、锁屏、截图或分屏。
+- 默认设置保持已验证的行为：左上角打开多任务，其余角关闭。
+- 鼠标在已启用角落停留约 300 ms 后触发；鼠标离开后重新武装，同一次停留只触发一次。
+- 仅处理 `SOURCE_MOUSE` 悬停事件；触屏和触控笔不会执行动作。
+- 只为已配置动作的角落创建透明 24 dp 区域。未配置动作的角落不会创建窗口。
+- 设备旋转或屏幕配置变化时，服务会重新定位角落窗口。
+- Android 9（API 28）及以上提供锁屏和截图；分屏仅在 Android 11（API 30）及以上且系统当前提供该动作时显示。
 - 服务不读取当前应用的无障碍窗口树，也不请求手势或触摸探索控制。
 
-透明悬停窗口必须成为鼠标指针的事件目标，因此服务开启时，触摸屏在四角 24 dp 区域内的点按可能被窗口接收；这些点按不会执行最近任务动作。
+启用的透明悬停窗口需要成为鼠标指针的事件目标，因此触摸屏在已启用角落的 24 dp 区域内点按时，点按可能由窗口接收；这些点按不会执行角落动作。
+
+设置保存在应用私有的 `SharedPreferences` 中。已有安装的总开关键保持不变，原左上角多任务行为作为默认设置保留。
 
 ## 构建
 
-项目使用 Android Gradle Plugin 9.4.0、Gradle Wrapper 9.6.0、Android SDK Platform 35 和 Build Tools 36.0.0，最低 Android 版本为 API 26。Kotlin 由 AGP 内置支持，不需要额外 Kotlin Gradle 插件。
+项目使用 Android Gradle Plugin 9.4.0、Gradle Wrapper 9.6.0、Android SDK Platform 35 和 Build Tools 36.0.0，最低 Android 版本为 API 26。Kotlin 由 AGP 内置支持，不需要额外 Kotlin Gradle 插件或第三方运行时依赖。
 
 用 Android Studio 打开此目录，或在终端确保 JDK 与 Android SDK 已配置后运行：
 
@@ -42,8 +46,9 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 1. 在 Android Studio 中运行，或将 `app/build/outputs/apk/debug/app-debug.apk` 安装到设备。命令行安装示例：`adb install -r app/build/outputs/apk/debug/app-debug.apk`。
 2. 打开 **Hot Corners for Android**，点击 **打开无障碍设置**。
-3. 在无障碍设置的 **已安装的应用**（不同系统也可能叫“已下载的应用”）中选择 **Hot Corners for Android** 并开启服务。
-4. 返回应用，保持 **启用左上角触发角** 开启。
-5. 连接鼠标，将指针移到屏幕左上角并停留约 300 ms，即可打开最近任务；把鼠标移出左上角后可以再次触发。
+3. 在无障碍设置的 **已安装的应用**（不同系统也可能叫“已下载的应用”）中找到 **Hot Corners for Android** 并开启服务。
+4. 返回应用，确认 **启用触发角** 开关已开启。
+5. 点击四个角落的按钮，为每个角选择动作。默认左上角是 **多任务**，其他角为 **关闭**。
+6. 连接鼠标，将指针移到已配置的角落并停留约 300 ms。鼠标离开后可以再次触发。
 
-关闭功能：在应用内关闭开关，或在 Android 无障碍设置中关闭该服务。
+关闭全部触发角：在应用内关闭 **启用触发角**，或在 Android 无障碍设置中关闭服务。

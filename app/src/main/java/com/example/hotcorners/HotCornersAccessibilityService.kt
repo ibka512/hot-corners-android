@@ -5,10 +5,10 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -16,28 +16,22 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import kotlin.math.roundToInt
 
-/**
- * Creates four transparent, mouse-hoverable edge windows. The first demo action is
- * intentionally limited to top-left -> Recent apps.
- */
+/** Creates transparent hover windows only for corners with a configured action. */
 class HotCornersAccessibilityService : AccessibilityService(),
     SharedPreferences.OnSharedPreferenceChangeListener {
 
-    private enum class Corner(val gravity: Int, val triggersRecents: Boolean) {
-        TOP_LEFT(Gravity.TOP or Gravity.LEFT, true),
-        TOP_RIGHT(Gravity.TOP or Gravity.RIGHT, false),
-        BOTTOM_LEFT(Gravity.BOTTOM or Gravity.LEFT, false),
-        BOTTOM_RIGHT(Gravity.BOTTOM or Gravity.RIGHT, false),
-    }
+    private data class CornerState(
+        var armed: Boolean = true,
+        var pointerInside: Boolean = false,
+        var pendingTrigger: Runnable? = null,
+    )
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val cornerViews = mutableMapOf<Corner, View>()
+    private val cornerViews = mutableMapOf<HotCorner, View>()
+    private val cornerStates = HotCorner.entries.associateWith { CornerState() }
     private var preferences: SharedPreferences? = null
     private var windowManager: WindowManager? = null
     private var enabled = HotCornersSettings.DEFAULT_ENABLED
-    private var topLeftArmed = true
-    private var topLeftPointerInside = false
-    private var pendingTrigger: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -45,19 +39,28 @@ class HotCornersAccessibilityService : AccessibilityService(),
         preferences = getSharedPreferences(HotCornersSettings.PREFERENCES_NAME, MODE_PRIVATE)
             .also { it.registerOnSharedPreferenceChangeListener(this) }
         enabled = HotCornersSettings.isEnabled(this)
+        refreshAvailableActions()
         rebuildCornerOverlays()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Re-anchor gravity-based windows after rotation or a size-class change.
+        // Gravity-based windows need to be re-added after rotation or size changes.
+        rebuildCornerOverlays()
+    }
+
+    override fun onSystemActionsChanged() {
+        super.onSystemActionsChanged()
+        refreshAvailableActions()
         rebuildCornerOverlays()
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
         if (key == HotCornersSettings.KEY_ENABLED) {
             enabled = HotCornersSettings.isEnabled(this)
-            rebuildCornerOverlays()
+            rebuildCornerOverlays(resetArming = true)
+        } else {
+            HotCorner.fromActionPreferenceKey(key)?.let(::updateCornerOverlay)
         }
     }
 
@@ -67,50 +70,98 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
     override fun onDestroy() {
         preferences?.unregisterOnSharedPreferenceChangeListener(this)
-        removeCornerOverlays()
+        removeCornerOverlays(resetArming = true)
         super.onDestroy()
     }
 
-    private fun rebuildCornerOverlays() {
-        removeCornerOverlays()
+    private fun refreshAvailableActions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val actionIds = getSystemActions().map { it.id }.toSet()
+        preferences?.edit()
+            ?.putStringSet(HotCornersSettings.KEY_AVAILABLE_ACTION_IDS, actionIds.map(Int::toString).toSet())
+            ?.apply()
+    }
+
+    private fun rebuildCornerOverlays(resetArming: Boolean = false) {
+        removeCornerOverlays(resetArming)
         if (!enabled) return
 
         val manager = windowManager ?: return
         val sizePx = (HOTSPOT_SIZE_DP * resources.displayMetrics.density).roundToInt()
-        Corner.entries.forEach { corner ->
-            val view = HoverCornerView(corner)
-            val params = WindowManager.LayoutParams(
-                sizePx,
-                sizePx,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT,
-            ).apply {
-                gravity = corner.gravity
-                alpha = 1f
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode =
-                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                }
-            }
-
-            try {
-                manager.addView(view, params)
-                cornerViews[corner] = view
-            } catch (exception: RuntimeException) {
-                Log.e(TAG, "Could not add $corner accessibility overlay", exception)
+        for (corner in HotCorner.entries) {
+            if (!addCornerOverlay(corner, manager, sizePx)) {
                 removeCornerOverlays()
                 return
             }
         }
     }
 
-    private fun removeCornerOverlays() {
-        cancelPendingTrigger()
-        topLeftPointerInside = false
-        topLeftArmed = true
+    private fun updateCornerOverlay(corner: HotCorner) {
+        val state = cornerStates.getValue(corner)
+        cancelPendingTrigger(state)
+        state.pointerInside = false
+        state.armed = true
+
+        cornerViews.remove(corner)?.let { view ->
+            try {
+                windowManager?.removeViewImmediate(view)
+            } catch (_: IllegalArgumentException) {
+                // The window may already have been detached during a service restart.
+            }
+        }
+
+        if (!enabled) return
+        val manager = windowManager ?: return
+        val sizePx = (HOTSPOT_SIZE_DP * resources.displayMetrics.density).roundToInt()
+        if (!addCornerOverlay(corner, manager, sizePx)) {
+            removeCornerOverlays()
+        }
+    }
+
+    private fun addCornerOverlay(
+        corner: HotCorner,
+        manager: WindowManager,
+        sizePx: Int,
+    ): Boolean {
+        val action = HotCornersSettings.getAction(this, corner)
+        if (action == CornerAction.NONE || !action.isAvailableOn(this)) return true
+
+        val view = HoverCornerView(corner)
+        val params = WindowManager.LayoutParams(
+            sizePx,
+            sizePx,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = corner.gravity
+            alpha = 1f
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+
+        return try {
+            manager.addView(view, params)
+            cornerViews[corner] = view
+            true
+        } catch (exception: RuntimeException) {
+            Log.e(TAG, "Could not add $corner accessibility overlay", exception)
+            false
+        }
+    }
+
+    private fun removeCornerOverlays(resetArming: Boolean = false) {
+        cornerStates.values.forEach { state ->
+            state.pendingTrigger?.let(mainHandler::removeCallbacks)
+            state.pendingTrigger = null
+            state.pointerInside = false
+            if (resetArming) state.armed = true
+        }
+
         val manager = windowManager
         cornerViews.values.toList().forEach { view ->
             try {
@@ -122,26 +173,25 @@ class HotCornersAccessibilityService : AccessibilityService(),
         cornerViews.clear()
     }
 
-    private fun onCornerHover(corner: Corner, event: MotionEvent): Boolean {
-        // Do not react to touchscreens, styluses, trackballs, or other pointer sources.
+    private fun onCornerHover(corner: HotCorner, event: MotionEvent): Boolean {
+        // Ignore touchscreens, styluses, trackballs, and all non-mouse sources.
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+        val state = cornerStates.getValue(corner)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER,
             MotionEvent.ACTION_HOVER_MOVE -> {
-                if (corner.triggersRecents && !topLeftPointerInside) {
-                    topLeftPointerInside = true
-                    scheduleRecentsIfArmed()
+                if (!state.pointerInside) {
+                    state.pointerInside = true
+                    scheduleActionIfArmed(corner, state)
                 }
             }
 
             MotionEvent.ACTION_HOVER_EXIT -> {
-                if (corner.triggersRecents) {
-                    topLeftPointerInside = false
-                    cancelPendingTrigger()
-                    // Rearm only after the mouse leaves the top-left hotspot.
-                    topLeftArmed = true
-                }
+                state.pointerInside = false
+                cancelPendingTrigger(state)
+                // Each corner is rearmed only when the mouse leaves that corner.
+                state.armed = true
             }
 
             else -> return false
@@ -149,41 +199,42 @@ class HotCornersAccessibilityService : AccessibilityService(),
         return true
     }
 
-    private fun scheduleRecentsIfArmed() {
-        if (!enabled || !topLeftArmed || pendingTrigger != null) return
+    private fun scheduleActionIfArmed(corner: HotCorner, state: CornerState) {
+        if (!enabled || !state.armed || state.pendingTrigger != null) return
 
         val trigger = Runnable {
-            pendingTrigger = null
-            if (!enabled || !topLeftPointerInside || !topLeftArmed) return@Runnable
+            state.pendingTrigger = null
+            if (!enabled || !state.pointerInside || !state.armed) return@Runnable
 
-            // Lock before invoking the system action so multiple hover-move events
-            // cannot cause repeated calls while the pointer remains in the corner.
-            topLeftArmed = false
-            val performed = performGlobalAction(GLOBAL_ACTION_RECENTS)
-            Log.i(TAG, "Top-left hover triggered Recent apps; performed=$performed")
+            val action = HotCornersSettings.getAction(this, corner)
+            val actionId = action.globalActionId() ?: return@Runnable
+
+            // Disarm before calling Android so repeated hover events cannot retrigger.
+            state.armed = false
+            val performed = performGlobalAction(actionId)
+            Log.i(TAG, "$corner triggered $action; performed=$performed")
         }
-        pendingTrigger = trigger
+        state.pendingTrigger = trigger
         mainHandler.postDelayed(trigger, DWELL_TIME_MS)
     }
 
-    private fun cancelPendingTrigger() {
-        pendingTrigger?.let(mainHandler::removeCallbacks)
-        pendingTrigger = null
+    private fun cancelPendingTrigger(state: CornerState) {
+        state.pendingTrigger?.let(mainHandler::removeCallbacks)
+        state.pendingTrigger = null
     }
 
     private inner class HoverCornerView(
-        private val corner: Corner,
+        private val corner: HotCorner,
     ) : View(this@HotCornersAccessibilityService) {
         init {
-            // Leave the visual surface fully transparent; only its input bounds matter.
+            // Transparent surface; only its input bounds are used for hover detection.
             setBackgroundColor(Color.TRANSPARENT)
             isFocusable = false
             isClickable = false
         }
 
-        override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-            return onCornerHover(corner, event) || super.onGenericMotionEvent(event)
-        }
+        override fun onGenericMotionEvent(event: MotionEvent): Boolean =
+            onCornerHover(corner, event) || super.onGenericMotionEvent(event)
     }
 
     private companion object {
