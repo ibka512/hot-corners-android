@@ -33,7 +33,7 @@
 
 ## 安装与启用
 
-1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新版 APK。当前版本为 [v1.4.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.4.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.4.0/Android-Mouse-Extension-v1.4.0-debug.apk)。
+1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新版 APK。当前版本为 [v1.4.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.4.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.4.0/app-debug.apk)。
 2. 安装并打开应用。
 3. 在设置页点按“管理无障碍服务”，进入系统无障碍设置。
 4. 在“已安装的应用”或系统对应列表中找到 **安卓鼠标拓展**，然后开启服务。
