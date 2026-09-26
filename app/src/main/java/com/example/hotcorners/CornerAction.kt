@@ -21,7 +21,7 @@ internal enum class HotCorner(
     companion object {
         fun fromPreferenceKey(key: String?): HotCorner? =
             entries.firstOrNull {
-                key == HotCornersSettings.actionKey(it) || key == HotCornersSettings.triggerKey(it)
+                HotCornersSettings.keyBelongsToCorner(key, it)
             }
     }
 }
@@ -67,7 +67,13 @@ internal enum class CornerTrigger(
     ;
 
     companion object {
+        val mouseButtons: List<CornerTrigger>
+            get() = entries.filter { it.button != null }
+
         fun fromId(id: String?): CornerTrigger? = entries.firstOrNull { it.id == id }
+
+        fun fromButton(button: Int): CornerTrigger? =
+            mouseButtons.firstOrNull { it.button == button }
     }
 }
 

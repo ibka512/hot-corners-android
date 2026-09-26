@@ -17,7 +17,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import kotlin.math.roundToInt
 
-/** Creates transparent hover windows only for corners with a configured action. */
+/** Creates transparent mouse-input windows only for corners with a configured action. */
 class HotCornersAccessibilityService : AccessibilityService(),
     SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -37,6 +37,7 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        HotCornersSettings.ensureMigrated(this)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         preferences = getSharedPreferences(HotCornersSettings.PREFERENCES_NAME, MODE_PRIVATE)
             .also { it.registerOnSharedPreferenceChangeListener(this) }
@@ -133,8 +134,9 @@ class HotCornersAccessibilityService : AccessibilityService(),
         manager: WindowManager,
         sizePx: Int,
     ): Boolean {
-        val action = HotCornersSettings.getAction(this, corner)
-        if (action == CornerAction.NONE || !action.isAvailableOn(this)) return true
+        val actions = listOf(HotCornersSettings.getHoverAction(this, corner)) +
+            HotCornersSettings.getButtonActions(this, corner).values
+        if (actions.none { it != CornerAction.NONE && it.isAvailableOn(this) }) return true
 
         val view = HoverCornerView(corner)
         val params = WindowManager.LayoutParams(
@@ -188,12 +190,9 @@ class HotCornersAccessibilityService : AccessibilityService(),
         // Ignore touchscreens, styluses, trackballs, and all non-mouse sources.
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
         val state = cornerStates.getValue(corner)
-        val trigger = HotCornersSettings.getTrigger(this, corner)
-
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER,
             MotionEvent.ACTION_HOVER_MOVE -> {
-                if (trigger != CornerTrigger.HOVER) return true
                 if (!state.pointerInside) {
                     state.pointerInside = true
                     if (state.hoverExitWasButton) {
@@ -217,10 +216,11 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
             MotionEvent.ACTION_BUTTON_PRESS -> {
                 if (!state.pointerInside) state.hoverExitWasButton = true
-                if (trigger.button == event.actionButton) {
+                val trigger = CornerTrigger.fromButton(event.actionButton)
+                if (trigger != null && HotCornersSettings.getButtonAction(this, corner, trigger) != null) {
                     // Android reports button transitions here separately from pointer-down events.
                     // Handling press only means a held button or its release cannot fire twice.
-                    performCornerAction(corner)
+                    performCornerAction(corner, trigger)
                     Log.i(TAG, "$corner triggered by $trigger")
                     return true
                 }
@@ -228,8 +228,9 @@ class HotCornersAccessibilityService : AccessibilityService(),
             }
 
             MotionEvent.ACTION_BUTTON_RELEASE -> {
-                // Consume the matching release after the configured button press was handled.
-                return trigger.button == event.actionButton
+                // Releases never execute an action; consume releases for configured buttons.
+                val trigger = CornerTrigger.fromButton(event.actionButton)
+                return trigger != null && HotCornersSettings.getButtonAction(this, corner, trigger) != null
             }
 
             else -> return false
@@ -239,6 +240,8 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
     private fun scheduleActionIfArmed(corner: HotCorner, state: CornerState) {
         if (!enabled || !state.armed || state.pendingTrigger != null) return
+        val hoverAction = HotCornersSettings.getHoverAction(this, corner)
+        if (hoverAction == CornerAction.NONE || !hoverAction.isAvailableOn(this)) return
 
         val trigger = Runnable {
             state.pendingTrigger = null
@@ -246,18 +249,22 @@ class HotCornersAccessibilityService : AccessibilityService(),
 
             // Disarm before calling Android so repeated hover events cannot retrigger.
             state.armed = false
-            performCornerAction(corner)
+            performCornerAction(corner, CornerTrigger.HOVER)
         }
         state.pendingTrigger = trigger
         mainHandler.postDelayed(trigger, HotCornersSettings.getDwellTimeMs(this).toLong())
     }
 
-    private fun performCornerAction(corner: HotCorner) {
-        val action = HotCornersSettings.getAction(this, corner)
+    private fun performCornerAction(corner: HotCorner, trigger: CornerTrigger) {
+        val action = if (trigger == CornerTrigger.HOVER) {
+            HotCornersSettings.getHoverAction(this, corner)
+        } else {
+            HotCornersSettings.getButtonAction(this, corner, trigger) ?: return
+        }
         if (action == CornerAction.NONE || !action.isAvailableOn(this)) return
 
         if (action.launchesApp) {
-            val packageName = HotCornersSettings.getAppPackage(this, corner)
+            val packageName = HotCornersSettings.getAppPackage(this, corner, trigger)
             if (packageName == null) {
                 Toast.makeText(this, R.string.app_not_selected, Toast.LENGTH_SHORT).show()
                 return

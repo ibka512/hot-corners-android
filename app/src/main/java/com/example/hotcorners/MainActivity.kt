@@ -73,6 +73,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        HotCornersSettings.ensureMigrated(this)
         preferences = getSharedPreferences(HotCornersSettings.PREFERENCES_NAME, MODE_PRIVATE)
         buildSettingsScreen()
         refreshContent()
@@ -502,13 +503,14 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         applyingSwitchUpdate = false
         refreshDwellTimeControl()
 
-        val configured = HotCorner.entries.count { HotCornersSettings.getAction(this, it) != CornerAction.NONE }
+        val configured = HotCorner.entries.count { HotCornersSettings.isCornerConfigured(this, it) }
         countText.text = getString(R.string.configured_count, configured)
         overviewGlyph.invalidate()
         actionCards.forEach { (corner, card) ->
-            val action = HotCornersSettings.getAction(this, corner)
-            val trigger = HotCornersSettings.getTrigger(this, corner)
-            card.bind(action, formatCornerActionLabel(corner, action), trigger)
+            val hoverAction = HotCornersSettings.getHoverAction(this, corner)
+            val hoverLabel = formatCornerActionLabel(corner, hoverAction, CornerTrigger.HOVER)
+            val buttonCount = HotCornersSettings.getButtonActions(this, corner).size
+            card.bind(hoverLabel, buttonCount)
         }
 
         val serviceEnabled = isHotCornersServiceEnabled()
@@ -542,12 +544,16 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         getString(R.string.dwell_time_value, dwellTimeMs)
     }
 
-    private fun formatCornerActionLabel(corner: HotCorner, action: CornerAction): String {
+    private fun formatCornerActionLabel(
+        corner: HotCorner,
+        action: CornerAction,
+        trigger: CornerTrigger,
+    ): String {
         if (!action.launchesApp) {
             return formatActionLabel(action, isAvailableInPicker(action))
         }
 
-        val packageName = HotCornersSettings.getAppPackage(this, corner)
+        val packageName = HotCornersSettings.getAppPackage(this, corner, trigger)
             ?: return getString(R.string.app_not_selected)
         val appLabel = applicationLabel(packageName) ?: return getString(R.string.app_not_available)
         return getString(
@@ -576,11 +582,11 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         private val cornerTitle = text(getString(corner.labelResId), 15f, R.color.md_on_surface).apply {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        private val actionTitle = text("", 14f, R.color.md_primary).apply {
+        private val hoverTitle = text("", 14f, R.color.md_primary).apply {
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setPadding(0, dp(4), 0, 0)
         }
-        private val triggerTitle = text("", 12f, R.color.md_on_surface_variant).apply {
+        private val buttonTitle = text("", 12f, R.color.md_on_surface_variant).apply {
             setPadding(0, dp(4), 0, 0)
         }
         private val hint = text(getString(R.string.adjust_action), 12f, R.color.md_on_surface_variant).apply {
@@ -597,21 +603,21 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             minimumHeight = dp(162)
             addView(glyph, LinearLayout.LayoutParams(dp(38), dp(38)))
             addView(cornerTitle, spaced(dp(9)))
-            addView(triggerTitle, wrap())
-            addView(actionTitle, wrap())
+            addView(hoverTitle, wrap())
+            addView(buttonTitle, wrap())
             addView(hint, wrap())
-            setOnClickListener { showActionPicker(corner) }
+            setOnClickListener { showCornerEditor(corner) }
         }
 
-        fun bind(action: CornerAction, label: String, trigger: CornerTrigger) {
-            actionTitle.text = label
-            triggerTitle.text = getString(R.string.corner_trigger_value, getString(trigger.labelResId))
-            glyph.configured = action != CornerAction.NONE
+        fun bind(label: String, buttonCount: Int) {
+            hoverTitle.text = getString(R.string.corner_hover_summary, label)
+            buttonTitle.text = getString(R.string.corner_button_count, buttonCount)
+            glyph.configured = HotCornersSettings.isCornerConfigured(this@MainActivity, corner)
             contentDescription = getString(
                 R.string.corner_action_button_description,
                 getString(corner.labelResId),
-                getString(trigger.labelResId),
                 label,
+                buttonCount,
             )
         }
     }
@@ -694,223 +700,249 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         val radio: RadioButton,
     )
 
-    private fun showActionPicker(corner: HotCorner) {
-        val actions = selectableActions(corner)
-        val selected = HotCornersSettings.getAction(this, corner)
+    private fun showCornerEditor(corner: HotCorner) {
         val dialog = Dialog(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(22), dp(24), dp(16))
-            background = rounded(R.color.md_surface_container_high, 28)
-        }
+        val content = modalContent()
         content.addView(
-            text(
-                getString(R.string.configure_corner_title, getString(corner.labelResId)),
-                23f,
-                R.color.md_on_surface,
-            ).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) },
+            text(getString(R.string.configure_corner_title, getString(corner.labelResId)), 23f, R.color.md_on_surface)
+                .apply { setTypeface(typeface, android.graphics.Typeface.BOLD) },
             wrap(),
         )
-        val trigger = HotCornersSettings.getTrigger(this, corner)
-        val summary = text(triggerSummary(trigger), 14f, R.color.md_on_surface_variant).apply {
-            setLineSpacing(dp(3).toFloat(), 1f)
-        }
-        content.addView(summary, spaced(dp(7)))
-
         content.addView(
-            text(getString(R.string.trigger_method_title), 13f, R.color.md_on_surface_variant).apply {
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            text(getString(R.string.corner_editor_summary), 14f, R.color.md_on_surface_variant).apply {
+                setLineSpacing(dp(3).toFloat(), 1f)
             },
-            spaced(dp(12)),
+            spaced(dp(6)),
         )
-        val triggerChoice = TextView(this).apply {
-            text = getString(R.string.trigger_choice_format, getString(trigger.labelResId))
+
+        val editorBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        editorBody.addView(sectionLabel(getString(R.string.hover_action_title)), spaced(dp(14)))
+        val hoverAction = HotCornersSettings.getHoverAction(this, corner)
+        val hoverChoice = TextView(this).apply {
+            text = getString(
+                R.string.hover_action_choice,
+                formatCornerActionLabel(corner, hoverAction, CornerTrigger.HOVER),
+            )
             textSize = 15f
             setTextColor(color(R.color.md_primary))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             gravity = Gravity.CENTER_VERTICAL
-            minHeight = dp(52)
+            minHeight = dp(56)
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = ripple(R.color.md_surface_container, 16)
             isClickable = true
             isFocusable = true
-            contentDescription = getString(R.string.trigger_choice_description, getString(trigger.labelResId))
+            contentDescription = getString(R.string.hover_action_description)
             setOnClickListener {
-                showTriggerPicker(corner) { selectedTrigger ->
-                    text = getString(R.string.trigger_choice_format, getString(selectedTrigger.labelResId))
-                    contentDescription = getString(
-                        R.string.trigger_choice_description,
-                        getString(selectedTrigger.labelResId),
-                    )
-                    summary.text = triggerSummary(selectedTrigger)
+                showActionPicker(corner, null) {
+                    dialog.dismiss()
+                    showCornerEditor(corner)
                 }
             }
         }
-        content.addView(triggerChoice, spaced(dp(5)))
-
-        content.addView(
-            text(getString(R.string.action_picker_section_title), 13f, R.color.md_on_surface_variant).apply {
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-            },
-            spaced(dp(12)),
+        editorBody.addView(hoverChoice, spaced(dp(6)))
+        editorBody.addView(
+            text(getString(R.string.trigger_summary_hover, formatDwellTime(HotCornersSettings.getDwellTimeMs(this))),
+                13f, R.color.md_on_surface_variant).apply { setLineSpacing(dp(3).toFloat(), 1f) },
+            spaced(dp(4)),
         )
-        val choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        actions.forEach { action ->
-            val available = isAvailableInPicker(action)
-            val label = formatActionLabel(action, available)
-            val radio = RadioButton(this).apply {
-                text = label
-                textSize = 15f
-                setTextColor(color(R.color.md_on_surface))
-                minHeight = dp(52)
-                setPadding(dp(4), dp(6), dp(4), dp(6))
-                buttonTintList = ColorStateList.valueOf(color(if (action == selected) R.color.md_primary else R.color.md_outline))
-                isChecked = action == selected
-                contentDescription = label
+
+        val buttonActions = HotCornersSettings.getButtonActions(this, corner)
+        val buttonHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        buttonHeader.addView(
+            sectionLabel(getString(R.string.button_actions_title)),
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        buttonHeader.addView(
+            text(getString(R.string.button_action_count, buttonActions.size, MAX_BUTTON_ACTIONS),
+                13f, R.color.md_on_surface_variant),
+            LinearLayout.LayoutParams(-2, -2),
+        )
+        editorBody.addView(buttonHeader, spaced(dp(18)))
+
+        if (buttonActions.isEmpty()) {
+            editorBody.addView(
+                text(getString(R.string.button_actions_empty), 14f, R.color.md_on_surface_variant).apply {
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                    background = rounded(R.color.md_surface_container, 16)
+                },
+                spaced(dp(6)),
+            )
+        } else {
+            buttonActions.forEach { (trigger, action) ->
+                val mappingRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(10), dp(6), dp(6), dp(6))
+                    background = rounded(R.color.md_surface_container, 16)
+                }
+                val mapping = text(
+                    getString(
+                        R.string.button_mapping_format,
+                        getString(trigger.labelResId),
+                        formatCornerActionLabel(corner, action, trigger),
+                    ),
+                    14f,
+                    R.color.md_on_surface,
+                ).apply {
+                    maxLines = 2
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                }
+                mappingRow.addView(mapping, LinearLayout.LayoutParams(0, -2, 1f))
+                mappingRow.addView(
+                    compactActionButton(R.string.edit_mapping) {
+                        showActionPicker(corner, trigger) {
+                            dialog.dismiss()
+                            showCornerEditor(corner)
+                        }
+                    },
+                )
+                mappingRow.addView(
+                    compactActionButton(R.string.remove_mapping) {
+                        HotCornersSettings.removeButtonBinding(this, corner, trigger)
+                        dialog.dismiss()
+                        showCornerEditor(corner)
+                    },
+                )
+                editorBody.addView(mappingRow, spaced(dp(6)))
+            }
+        }
+
+        val addButton = TextView(this).apply {
+            text = getString(
+                if (buttonActions.size >= MAX_BUTTON_ACTIONS) R.string.button_actions_limit
+                else R.string.add_button_action,
+            )
+            textSize = 14f
+            setTextColor(color(R.color.md_primary))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            minHeight = dp(52)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            background = ripple(R.color.md_surface_container_high, 100)
+            isClickable = buttonActions.size < MAX_BUTTON_ACTIONS
+            isFocusable = isClickable
+            alpha = if (isClickable) 1f else 0.6f
+            contentDescription = text.toString()
+            if (isClickable) {
                 setOnClickListener {
-                    dialog.dismiss()
-                    if (action.launchesApp) {
-                        showAppPicker(corner, action)
-                    } else {
-                        preferences.edit().putString(HotCornersSettings.actionKey(corner), action.id).apply()
+                    showButtonTriggerPicker(corner) { selectedTrigger ->
+                        showActionPicker(corner, selectedTrigger) {
+                            dialog.dismiss()
+                            showCornerEditor(corner)
+                        }
                     }
                 }
             }
-            choices.addView(radio, LinearLayout.LayoutParams(-1, -2))
         }
-        val choiceScroll = ScrollView(this).apply {
+        editorBody.addView(addButton, spaced(dp(10)))
+
+        val editorScroll = ScrollView(this).apply {
             isFillViewport = false
-            addView(choices)
+            addView(editorBody)
         }
-        val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
-            .coerceAtLeast(dp(280))
-        val choiceHeight = min(dp(380), (availableHeight - dp(350)).coerceAtLeast(dp(120)))
-        content.addView(choiceScroll, LinearLayout.LayoutParams(-1, choiceHeight).apply { topMargin = dp(10) })
-
-        val cancel = TextView(this).apply {
-            text = getString(R.string.cancel)
-            textSize = 14f
-            setTextColor(color(R.color.md_primary))
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            gravity = Gravity.CENTER
-            minHeight = dp(48)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = ripple(R.color.md_surface_variant, 100)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { dialog.dismiss() }
-        }
-        content.addView(cancel, LinearLayout.LayoutParams(-2, dp(48)).apply {
-            gravity = Gravity.END
-            topMargin = dp(6)
-        })
-
-        dialog.setContentView(content)
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            val width = actionPickerWidthPx()
-            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        dialog.show()
-        dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        content.addView(editorScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4) })
+        content.addView(dialogActionButton(R.string.close) { dialog.dismiss() }, footerActionParams())
+        showModal(dialog, content, 640)
     }
 
-    private fun showTriggerPicker(corner: HotCorner, onSelected: (CornerTrigger) -> Unit) {
-        val selected = HotCornersSettings.getTrigger(this, corner)
+    private fun showButtonTriggerPicker(corner: HotCorner, onSelected: (CornerTrigger) -> Unit) {
+        val configured = HotCornersSettings.getButtonActions(this, corner).keys
+        val available = CornerTrigger.mouseButtons.filterNot { it in configured }
+        if (available.isEmpty()) return
+
         val dialog = Dialog(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(22), dp(24), dp(16))
-            background = rounded(R.color.md_surface_container_high, 28)
-        }
+        val content = modalContent()
         content.addView(
-            text(
-                getString(R.string.choose_trigger_title, getString(corner.labelResId)),
-                23f,
-                R.color.md_on_surface,
-            ).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) },
+            text(getString(R.string.choose_button_title), 23f, R.color.md_on_surface)
+                .apply { setTypeface(typeface, android.graphics.Typeface.BOLD) },
             wrap(),
         )
         content.addView(
-            text(getString(R.string.choose_trigger_summary), 14f, R.color.md_on_surface_variant).apply {
+            text(getString(R.string.choose_button_summary), 14f, R.color.md_on_surface_variant).apply {
                 setLineSpacing(dp(3).toFloat(), 1f)
             },
-            spaced(dp(7)),
+            spaced(dp(6)),
         )
+        val choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        available.forEach { trigger ->
+            val row = pickerChoice(getString(trigger.labelResId), false) {
+                dialog.dismiss()
+                onSelected(trigger)
+            }
+            choices.addView(row, wrap())
+        }
+        val choiceScroll = ScrollView(this).apply { addView(choices) }
+        content.addView(choiceScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+        content.addView(dialogActionButton(R.string.cancel) { dialog.dismiss() }, footerActionParams())
+        showModal(dialog, content, 500)
+    }
+
+    private fun showActionPicker(corner: HotCorner, trigger: CornerTrigger?, onSaved: () -> Unit) {
+        val bindingTrigger = trigger ?: CornerTrigger.HOVER
+        val selected = if (bindingTrigger == CornerTrigger.HOVER) {
+            HotCornersSettings.getHoverAction(this, corner)
+        } else {
+            HotCornersSettings.getButtonAction(this, corner, bindingTrigger)
+        }
+        val actions = selectableActions(bindingTrigger, selected)
+        val dialog = Dialog(this)
+        val content = modalContent()
+        val title = if (bindingTrigger == CornerTrigger.HOVER) {
+            getString(R.string.hover_action_picker_title, getString(corner.labelResId))
+        } else {
+            getString(
+                R.string.button_action_picker_title,
+                getString(corner.labelResId),
+                getString(bindingTrigger.labelResId),
+            )
+        }
+        content.addView(
+            text(title, 23f, R.color.md_on_surface).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) },
+            wrap(),
+        )
+        val summaryText = if (bindingTrigger == CornerTrigger.HOVER) {
+            getString(R.string.trigger_summary_hover, formatDwellTime(HotCornersSettings.getDwellTimeMs(this)))
+        } else {
+            getString(bindingTrigger.summaryResId)
+        }
+        content.addView(
+            text(summaryText, 14f, R.color.md_on_surface_variant).apply { setLineSpacing(dp(3).toFloat(), 1f) },
+            spaced(dp(6)),
+        )
+        content.addView(sectionLabel(getString(R.string.action_picker_section_title)), spaced(dp(12)))
 
         val choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        CornerTrigger.entries.forEach { trigger ->
-            val radio = RadioButton(this).apply {
-                text = getString(trigger.labelResId)
-                textSize = 15f
-                setTextColor(color(R.color.md_on_surface))
-                minHeight = dp(52)
-                setPadding(dp(4), dp(6), dp(4), dp(6))
-                buttonTintList = ColorStateList.valueOf(
-                    color(if (trigger == selected) R.color.md_primary else R.color.md_outline),
-                )
-                isChecked = trigger == selected
-                contentDescription = getString(R.string.trigger_picker_item_description, getString(trigger.labelResId))
-                setOnClickListener {
-                    preferences.edit()
-                        .putString(HotCornersSettings.triggerKey(corner), trigger.id)
-                        .apply()
-                    onSelected(trigger)
-                    dialog.dismiss()
+        actions.forEach { action ->
+            val label = formatActionLabel(action, isAvailableInPicker(action))
+            choices.addView(pickerChoice(label, action == selected) {
+                dialog.dismiss()
+                if (action.launchesApp) {
+                    showAppPicker(corner, action, bindingTrigger, onSaved)
+                } else {
+                    HotCornersSettings.saveBinding(this, corner, trigger, action)
+                    onSaved()
                 }
-            }
-            choices.addView(radio, LinearLayout.LayoutParams(-1, -2))
+            }, wrap())
         }
-        val choiceScroll = ScrollView(this).apply {
-            isFillViewport = false
-            addView(choices)
-        }
-        val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
-            .coerceAtLeast(dp(280))
-        val choiceHeight = min(dp(380), (availableHeight - dp(220)).coerceAtLeast(dp(120)))
-        content.addView(choiceScroll, LinearLayout.LayoutParams(-1, choiceHeight).apply { topMargin = dp(10) })
-
-        val cancel = TextView(this).apply {
-            text = getString(R.string.cancel)
-            textSize = 14f
-            setTextColor(color(R.color.md_primary))
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            gravity = Gravity.CENTER
-            minHeight = dp(48)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = ripple(R.color.md_surface_variant, 100)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { dialog.dismiss() }
-        }
-        content.addView(cancel, LinearLayout.LayoutParams(-2, dp(48)).apply {
-            gravity = Gravity.END
-            topMargin = dp(6)
-        })
-
-        dialog.setContentView(content)
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        dialog.show()
-        dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        val choiceScroll = ScrollView(this).apply { addView(choices) }
+        content.addView(choiceScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+        content.addView(dialogActionButton(R.string.cancel) { dialog.dismiss() }, footerActionParams())
+        showModal(dialog, content, 640)
     }
 
-    private fun triggerSummary(trigger: CornerTrigger): String = if (trigger == CornerTrigger.HOVER) {
-        getString(trigger.summaryResId, formatDwellTime(HotCornersSettings.getDwellTimeMs(this)))
-    } else {
-        getString(trigger.summaryResId)
-    }
-
-    private fun showAppPicker(corner: HotCorner, action: CornerAction) {
+    private fun showAppPicker(
+        corner: HotCorner,
+        action: CornerAction,
+        trigger: CornerTrigger,
+        onSaved: () -> Unit,
+    ) {
         val apps = LaunchableAppRepository.load(this)
         val dialog = Dialog(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(22), dp(24), dp(16))
-            background = rounded(R.color.md_surface_container_high, 28)
-        }
+        val content = modalContent()
         content.addView(
             text(getString(R.string.choose_app_title), 23f, R.color.md_on_surface).apply {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -943,7 +975,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         }
         content.addView(searchField, spaced(dp(12)))
 
-        val adapter = LaunchableAppAdapter(apps, HotCornersSettings.getAppPackage(this, corner))
+        val adapter = LaunchableAppAdapter(apps, HotCornersSettings.getAppPackage(this, corner, trigger))
         val appList = ListView(this).apply {
             this.adapter = adapter
             divider = android.graphics.drawable.ColorDrawable(color(R.color.md_outline_variant))
@@ -955,11 +987,9 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             }
             setOnItemClickListener { _, _, position, _ ->
                 val app = adapter.getItem(position) as LaunchableApp
-                preferences.edit()
-                    .putString(HotCornersSettings.actionKey(corner), action.id)
-                    .putString(HotCornersSettings.appPackageKey(corner), app.packageName)
-                    .apply()
+                HotCornersSettings.saveBinding(this@MainActivity, corner, trigger, action, app.packageName)
                 dialog.dismiss()
+                onSaved()
             }
         }
         val emptyState = appList.emptyView as View
@@ -969,7 +999,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         }
         val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx)
             .coerceAtLeast(dp(280))
-        val listHeight = min(dp(380), (availableHeight - dp(292)).coerceAtLeast(dp(100)))
+        val listHeight = min(dp(360), (availableHeight - dp(292)).coerceAtLeast(dp(100)))
         content.addView(listFrame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -977,35 +1007,12 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
             override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
         })
 
-        val cancel = TextView(this).apply {
-            text = getString(R.string.cancel)
-            textSize = 14f
-            setTextColor(color(R.color.md_primary))
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            gravity = Gravity.CENTER
-            minHeight = dp(48)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = ripple(R.color.md_surface_variant, 100)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { dialog.dismiss() }
-        }
-        content.addView(cancel, LinearLayout.LayoutParams(-2, dp(48)).apply {
-            gravity = Gravity.END
-            topMargin = dp(6)
-        })
-
-        dialog.setContentView(content)
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
-            )
-            window.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        dialog.show()
-        dialog.window?.setLayout(actionPickerWidthPx(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        content.addView(dialogActionButton(R.string.cancel) { dialog.dismiss() }, footerActionParams())
+        showModal(dialog, content, 640)
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+        )
     }
 
     private fun actionPickerWidthPx(): Int {
@@ -1013,12 +1020,83 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
         return min((availableWidth - dp(32)).coerceAtLeast(dp(240)), dp(480))
     }
 
-    private fun selectableActions(corner: HotCorner): List<CornerAction> {
+    private fun modalContent() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(24), dp(22), dp(24), dp(16))
+        background = rounded(R.color.md_surface_container_high, 28)
+    }
+
+    private fun sectionLabel(label: String) = text(label, 13f, R.color.md_on_surface_variant).apply {
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+    }
+
+    private fun dialogActionButton(labelRes: Int, onClick: () -> Unit) = TextView(this).apply {
+        text = getString(labelRes)
+        textSize = 14f
+        setTextColor(color(R.color.md_primary))
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+        gravity = Gravity.CENTER
+        minHeight = dp(48)
+        minWidth = dp(72)
+        setPadding(dp(16), 0, dp(16), 0)
+        background = ripple(R.color.md_surface_variant, 100)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { onClick() }
+    }
+
+    private fun footerActionParams() = LinearLayout.LayoutParams(-2, dp(48)).apply {
+        gravity = Gravity.END
+        topMargin = dp(8)
+    }
+
+    private fun compactActionButton(labelRes: Int, onClick: () -> Unit) = TextView(this).apply {
+        text = getString(labelRes)
+        textSize = 12f
+        setTextColor(color(R.color.md_primary))
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+        gravity = Gravity.CENTER
+        minWidth = dp(48)
+        minHeight = dp(44)
+        setPadding(dp(5), 0, dp(5), 0)
+        background = ripple(R.color.md_surface_container_high, 12)
+        isClickable = true
+        isFocusable = true
+        contentDescription = getString(labelRes)
+        setOnClickListener { onClick() }
+    }
+
+    private fun pickerChoice(label: String, selected: Boolean, onClick: () -> Unit) = RadioButton(this).apply {
+        text = label
+        textSize = 15f
+        setTextColor(color(R.color.md_on_surface))
+        minHeight = dp(52)
+        setPadding(dp(4), dp(6), dp(4), dp(6))
+        buttonTintList = ColorStateList.valueOf(
+            color(if (selected) R.color.md_primary else R.color.md_outline),
+        )
+        isChecked = selected
+        contentDescription = label
+        setOnClickListener { onClick() }
+    }
+
+    private fun showModal(dialog: Dialog, content: View, maxHeightDp: Int) {
+        dialog.setContentView(content)
+        dialog.show()
+        dialog.window?.let { window ->
+            window.setBackgroundDrawableResource(android.R.color.transparent)
+            val availableHeight = (scrollContainer.height - safeTopInsetPx - safeBottomInsetPx - dp(32))
+                .coerceAtLeast(dp(240))
+            window.setLayout(actionPickerWidthPx(), min(dp(maxHeightDp), availableHeight))
+        }
+    }
+
+    private fun selectableActions(trigger: CornerTrigger, selected: CornerAction?): List<CornerAction> {
         val choices = CornerAction.entries.filter { action ->
-            action == CornerAction.NONE || (action.isSupportedByOs() && isAvailableInPicker(action))
+            (trigger == CornerTrigger.HOVER && action == CornerAction.NONE) ||
+                (action != CornerAction.NONE && action.isSupportedByOs() && isAvailableInPicker(action))
         }.toMutableList()
-        val current = HotCornersSettings.getAction(this, corner)
-        if (current !in choices) choices.add(current)
+        if (selected != null && selected !in choices) choices.add(selected)
         return choices
     }
 
@@ -1077,6 +1155,7 @@ class MainActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeListe
     private fun spaced(top: Int) = wrap().apply { topMargin = top }
 
     private companion object {
+        const val MAX_BUTTON_ACTIONS = 5
         const val EXPANDED_WIDTH_DP = 840
         const val MEDIUM_CONTENT_MAX_DP = 760
         const val WIDE_CONTENT_MAX_DP = 1200
@@ -1116,7 +1195,7 @@ private class CornerGlyphView(
         )
         corners.forEach { (item, first, second) ->
             val active = if (corner == null) {
-                HotCornersSettings.getAction(context, item) != CornerAction.NONE
+                HotCornersSettings.isCornerConfigured(context, item)
             } else {
                 item == corner && configured
             }
