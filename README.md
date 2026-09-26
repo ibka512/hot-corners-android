@@ -46,7 +46,7 @@
 
 ## 安装与启用
 
-1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新公开版 APK。当前公开版本为 [v1.4.0](https://github.com/ibka512/hot-corners-android/releases/tag/v1.4.0)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.4.0/app-debug.apk)。
+1. 从 [GitHub Releases](https://github.com/ibka512/hot-corners-android/releases) 下载最新公开版 APK。当前公开版本为 [v1.4.1](https://github.com/ibka512/hot-corners-android/releases/tag/v1.4.1)，也可[直接下载 APK](https://github.com/ibka512/hot-corners-android/releases/download/v1.4.1/app-debug.apk)。
 2. 安装并打开应用。
 3. 在设置页点按“管理无障碍服务”，进入系统无障碍设置。
 4. 在“已安装的应用”或系统对应列表中找到 **安卓鼠标拓展**，然后开启服务。
@@ -102,4 +102,4 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 ## 发布包说明
 
-GitHub Releases 当前公开的 APK 为 v1.4.0；本文档中的界面截图来自已安装本次 `main` 分支更新的平板。此次源码更新尚未作为新的 Release APK 发布。现有 Release 提供由 `debug` 构建变体生成的可安装 APK，包内含应用启动器图标，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
+GitHub Releases 当前公开的 APK 为 v1.4.1。该 APK 由 `debug` 构建变体生成，并沿用 v1.4.0 的签名证书，以支持已安装旧版的覆盖升级。它包含应用启动器图标，适用于侧载安装与功能验证；该文件不是用于 Google Play 发布的正式签名包。
